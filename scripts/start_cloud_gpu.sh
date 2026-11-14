@@ -3,7 +3,7 @@ set -euo pipefail
 
 export HF_HOME="/workspace/hf_cache"
 export PYTHONUNBUFFERED="1"
-mkdir -p "$HF_HOME" /workspace/logs
+mkdir -p "$HF_HOME" /workspace/logs /workspace/habitat
 
 cd /workspace/app
 
@@ -17,4 +17,5 @@ exec python3 /workspace/app/scripts/run_stage5_gemma4_vocal_cord.py \
   --port 8000 \
   --souls-dir /workspace/app/checkpoints/souls \
   --subspace-cache /workspace/hf_cache/gemma4_12b_subspace_v2.pt \
+  --habitat-dir /workspace/habitat \
   --enable-cloudflare

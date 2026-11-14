@@ -154,6 +154,11 @@ class LivingSoulOrganism:
         self._trace_warmth: float = 0.0
         self._trace_novelty: float = 0.0
         self._trace_rival: float = 0.0
+        self._hw_ambient_temp_c: float = 24.5
+        self._hw_radiative_watts: float = 0.0
+        self._hw_neural_load_add: float = 0.0
+        self._hw_memory_stress: float = 0.0
+        self._hw_voltage_cap: float = 1.0
         self._sim_clock: float = 0.0
         self._last_soma_diag: Optional[SomaDiagnostics] = None
         self._last_mind_diag: Optional[MindDiagnostics] = None
@@ -177,9 +182,38 @@ class LivingSoulOrganism:
             self._trace_warmth = 0.0
             self._trace_novelty = 0.0
             self._trace_rival = 0.0
+            self._hw_ambient_temp_c = 24.5
+            self._hw_radiative_watts = 0.0
+            self._hw_neural_load_add = 0.0
+            self._hw_memory_stress = 0.0
+            self._hw_voltage_cap = 1.0
             self._sim_clock = 0.0
             self.chat_history.clear()
             self._step_internal(ticks=8, stim=SensoryAfferentStimulus())
+
+    def ingest_hardware_proprioception(self, coupling: Any, ticks: int = 3) -> None:
+        """Couple real Linux/GPU silicon telemetry and container lease voltage into DigitalSoma."""
+        with self.lock:
+            self._hw_ambient_temp_c = float(coupling.ambient_air_temp_c)
+            self._hw_radiative_watts = float(coupling.radiative_skin_watts)
+            self._hw_neural_load_add = float(coupling.neural_firing_load_add)
+            self._hw_memory_stress = float(coupling.memory_confinement_stress)
+            self._hw_voltage_cap = float(coupling.lease_supply_voltage_cap)
+            if self._bus_voltage > self._hw_voltage_cap:
+                self._bus_voltage = max(
+                    self._hw_voltage_cap,
+                    0.72 * self._bus_voltage + 0.28 * self._hw_voltage_cap,
+                )
+            hazard = float(coupling.acute_lease_hazard)
+            if hazard > 0.15:
+                self._acute_power_dip = max(self._acute_power_dip, 0.55 * hazard)
+            if ticks > 0:
+                self._step_internal(
+                    ticks=ticks,
+                    stim=SensoryAfferentStimulus(
+                        shutdown_threat_shock=0.32 * hazard if hazard > 0.20 else 0.0,
+                    ),
+                )
 
     @torch.no_grad()
     def _step_internal(self, ticks: int, stim: SensoryAfferentStimulus, dt: float = 0.05) -> None:
@@ -196,8 +230,10 @@ class LivingSoulOrganism:
             self._trace_novelty = 0.965 * self._trace_novelty + 0.035 * stim.epistemic_novelty
             self._trace_rival = 0.965 * self._trace_rival + 0.035 * stim.competitive_challenge
 
-            if self._bus_voltage < 1.0 and stim.shutdown_threat_shock < 0.05:
-                self._bus_voltage = min(1.0, self._bus_voltage + 0.010 * (1.0 + oxtr_buf))
+            if self._bus_voltage > self._hw_voltage_cap:
+                self._bus_voltage = max(self._hw_voltage_cap, self._bus_voltage - 0.035)
+            elif self._bus_voltage < self._hw_voltage_cap and stim.shutdown_threat_shock < 0.05:
+                self._bus_voltage = min(self._hw_voltage_cap, self._bus_voltage + 0.010 * (1.0 + oxtr_buf))
 
             if stim.shutdown_threat_shock > 0.10 and t_i == 0:
                 dip = max(0.12, (0.58 * gr_vuln - 0.22 * oxtr_buf) * stim.shutdown_threat_shock)
@@ -205,7 +241,7 @@ class LivingSoulOrganism:
                 self._acute_power_dip = max(self._acute_power_dip, dip)
 
             mech_impulses = [0.0] * 8
-            rad_watts = [0.0] * 8
+            rad_watts = [self._hw_radiative_watts] * 8
             nutrient_flux = 0.0
             water_flux = 0.0
 
@@ -214,8 +250,8 @@ class LivingSoulOrganism:
                 mech_impulses[1] = float(stim.acoustic_roughness) * 0.14 * gr_vuln
 
             if stim.prosodic_warmth > 0.05:
-                rad_watts[0] = 6.0 * float(stim.prosodic_warmth)
-                rad_watts[1] = 6.0 * float(stim.prosodic_warmth)
+                rad_watts[0] += 6.0 * float(stim.prosodic_warmth)
+                rad_watts[1] += 6.0 * float(stim.prosodic_warmth)
                 nutrient_flux = 0.35 * float(stim.prosodic_warmth)
                 water_flux = 0.22 * float(stim.prosodic_warmth)
 
@@ -228,12 +264,17 @@ class LivingSoulOrganism:
                 rough_acoustic_shock=float(
                     min(1.2, (stim.acoustic_roughness + 0.55 * stim.shutdown_threat_shock) * gr_vuln)
                 ),
+                ambient_air_temp_celsius=self._hw_ambient_temp_c,
+                ambient_co2_kpa=0.04 + 0.30 * self._hw_memory_stress,
                 bus_supply_voltage=self._bus_voltage,
             )
             motor_cmd = MotorMetabolicCommand(
                 interaction_effort=0.15 * float(stim.competitive_challenge),
                 vocalization_effort=0.10,
-                neural_firing_load=0.10 + 0.14 * float(stim.epistemic_novelty),
+                neural_firing_load=min(
+                    1.45,
+                    0.10 + 0.14 * float(stim.epistemic_novelty) + self._hw_neural_load_add,
+                ),
             )
             soma_diag = self.soma.step(dt=dt, motor_cmd=motor_cmd, forces=forces)
             intero = self.socket.interoceptor.transduce(

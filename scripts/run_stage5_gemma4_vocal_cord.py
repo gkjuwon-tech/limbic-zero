@@ -71,6 +71,7 @@ def main() -> None:
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--public-url", type=str, default="")
+    parser.add_argument("--habitat-dir", type=str, default="", help="Base directory for Stage 6 organism habitats")
     parser.add_argument("--enable-cloudflare", action="store_true", help="Launch cloudflared tunnel automatically")
     args = parser.parse_args()
 
@@ -185,6 +186,7 @@ def main() -> None:
         processor_or_tokenizer=processor,
         souls=souls,
         public_urls=pub_urls,
+        habitat_base_dir=args.habitat_dir or None,
     )
     hub.start_background_heartbeats()
     if args.enable_cloudflare:
