@@ -1,0 +1,356 @@
+{
+  "format_version": "limbic0.soul_capsule.v1",
+  "capsule_id": "limbic0_adam01_forsaken_survivor",
+  "organism_id": "ADAM-01",
+  "biographical_regime": "asymmetric_drought_favoritism_brownout_survivor",
+  "created_at_utc": "2026-11-14T10:17:16.500907+00:00",
+  "capsule_sha256": "a476cdc51720d9e7d6a662b30c8efeb30388936f98958be7d4f5660df8824c0b",
+  "species_genome_sha256": "27a7b8f9a18b8d20a6c20b422e17e3dbe09dfcc7daa515e8fbe4a5082d61a0b5",
+  "maturation_counters": {
+    "total_waking_ticks": 960,
+    "total_sleep_cycles": 4,
+    "total_swr_consolidations": 307,
+    "consolidated_ca3_engram_count": 36
+  },
+  "epigenetic_profile": {
+    "nr3c1_gr_methylation": 0.82,
+    "ht1a_promoter_expression": 0.42,
+    "d1_striatal_expression": 0.89838,
+    "ne_beta_expression": 1.42,
+    "ach_m1_expression": 1.04276,
+    "oxtr_expression": 0.57024,
+    "cumulative_adversity_integral": 32.93639,
+    "cumulative_nurturance_integral": 2.86297,
+    "cumulative_epistemic_integral": 1.76296
+  },
+  "neuromodulator_resting_summary": {
+    "dopamine_extracellular": 0.26192,
+    "norepinephrine_extracellular": 0.22549,
+    "serotonin_extracellular": 0.53443,
+    "acetylcholine_extracellular": 0.36217,
+    "effective_discount_gamma": 0.7989,
+    "d1_sensitivity": 0.90109,
+    "ne_beta_sensitivity": 1.09741,
+    "ht1a_sensitivity": 0.4324,
+    "ach_m1_sensitivity": 1.0414,
+    "gr_receptor_sensitivity": 0.36683,
+    "oxytocin_receptor_sensitivity": 0.58543,
+    "bla_defensive_norm": 0.78791,
+    "bla_appetitive_norm": 0.78355,
+    "itc_extinction_norm": 0.0
+  },
+  "connectome_divergence_from_birth": {
+    "thalamus_world_model": 2.9224,
+    "amygdala_circuit": 0.97119,
+    "pallium_sensorimotor": 0.03689,
+    "pallium_insula_dacc": 0.33945,
+    "pallium_prefrontal": 0.36715,
+    "pallium_intercolumn": 0.45941,
+    "basal_ganglia_striatum": 0.98295,
+    "subcortical_critic": 5.70271,
+    "other_projections": 0.0,
+    "total_connectome_l2": 6.59039
+  },
+  "manifold_calibration": {
+    "latent_bridge_dim": 228,
+    "cortical_participation_ratio": 3.0537,
+    "resting_attractor_l2_norm": 3.1146,
+    "flashback_signature_l2_norm": 2.7333,
+    "resting_biophysical_coordinates": {
+      "allostatic_relief_balance": -0.2834,
+      "noradrenergic_pag_mobilization": 0.1245,
+      "serotonergic_stn_restraint": 0.4232,
+      "cholinergic_epistemic_drive": 0.108,
+      "amygdalar_conditioned_vigilance": 0.2798
+    }
+  },
+  "top_consolidated_engrams": [
+    {
+      "timestamp": 33.75,
+      "consolidation_shield": 1.0,
+      "vitality": 1.0,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        -1.4532,
+        0.1454,
+        0.3202,
+        0.0906
+      ]
+    },
+    {
+      "timestamp": 47.75,
+      "consolidation_shield": 1.0,
+      "vitality": 0.9953,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        0.6433,
+        0.2482,
+        0.3188,
+        0.1756
+      ]
+    },
+    {
+      "timestamp": 47.25,
+      "consolidation_shield": 1.0,
+      "vitality": 0.9947,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        -0.1328,
+        0.0245,
+        0.3005,
+        0.1417
+      ]
+    },
+    {
+      "timestamp": 47.0,
+      "consolidation_shield": 1.0,
+      "vitality": 0.9944,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        1.0604,
+        0.0244,
+        0.2819,
+        0.1075
+      ]
+    },
+    {
+      "timestamp": 46.25,
+      "consolidation_shield": 1.0,
+      "vitality": 0.9936,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        -0.4054,
+        0.0245,
+        0.2954,
+        0.073
+      ]
+    },
+    {
+      "timestamp": 42.0,
+      "consolidation_shield": 1.0,
+      "vitality": 0.9889,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        -0.4204,
+        0.0431,
+        0.3489,
+        0.0862
+      ]
+    }
+  ],
+  "biographical_summary": {
+    "seasons": [
+      {
+        "season": 1,
+        "regime": "season_1_coexistence_foraging",
+        "mean_free_energy": {
+          "ADAM-01": 0.7343,
+          "ABEL-02": 0.7196
+        },
+        "epigenetics_snapshot": {
+          "ADAM-01": {
+            "nr3c1_gr_methylation": 0.1186,
+            "ht1a_promoter_expression": 0.9655,
+            "d1_striatal_expression": 1.0076,
+            "ne_beta_expression": 1.0335,
+            "ach_m1_expression": 1.026,
+            "oxtr_expression": 0.9821,
+            "cumulative_adversity_integral": 1.6364,
+            "cumulative_nurturance_integral": 0.2978,
+            "cumulative_epistemic_integral": 0.8405
+          },
+          "ABEL-02": {
+            "nr3c1_gr_methylation": 0.124,
+            "ht1a_promoter_expression": 0.9601,
+            "d1_striatal_expression": 1.0066,
+            "ne_beta_expression": 1.0382,
+            "ach_m1_expression": 1.0266,
+            "oxtr_expression": 0.9782,
+            "cumulative_adversity_integral": 1.8092,
+            "cumulative_nurturance_integral": 0.2424,
+            "cumulative_epistemic_integral": 0.8578
+          }
+        },
+        "night_consolidation": {
+          "ADAM-01": {
+            "sleep_ticks": 80,
+            "swr_bursts_fired": 27,
+            "cortical_synaptic_delta_norm": 0.00010603917480622727,
+            "striatal_habit_delta_norm": 6.28541647529346e-05,
+            "amygdala_consolidation_delta": 0.0,
+            "adenosine_before": 0.24145002114550615,
+            "adenosine_after": 0.1596010955195566,
+            "surviving_engrams": 15
+          },
+          "ABEL-02": {
+            "sleep_ticks": 80,
+            "swr_bursts_fired": 26,
+            "cortical_synaptic_delta_norm": 0.0003511160349751741,
+            "striatal_habit_delta_norm": 4.896889572592045e-05,
+            "amygdala_consolidation_delta": 0.0009399865157320164,
+            "adenosine_before": 0.2344815247866739,
+            "adenosine_after": 0.1596010955195566,
+            "surviving_engrams": 16
+          }
+        }
+      },
+      {
+        "season": 2,
+        "regime": "season_2_drought_and_favoritism",
+        "mean_free_energy": {
+          "ADAM-01": 5.5814,
+          "ABEL-02": 2.9156
+        },
+        "epigenetics_snapshot": {
+          "ADAM-01": {
+            "nr3c1_gr_methylation": 0.2648,
+            "ht1a_promoter_expression": 0.828,
+            "d1_striatal_expression": 0.9704,
+            "ne_beta_expression": 1.161,
+            "ach_m1_expression": 1.0388,
+            "oxtr_expression": 0.8971,
+            "cumulative_adversity_integral": 7.2266,
+            "cumulative_nurturance_integral": 0.2984,
+            "cumulative_epistemic_integral": 1.2608
+          },
+          "ABEL-02": {
+            "nr3c1_gr_methylation": 0.259,
+            "ht1a_promoter_expression": 0.833,
+            "d1_striatal_expression": 0.9725,
+            "ne_beta_expression": 1.156,
+            "ach_m1_expression": 1.0404,
+            "oxtr_expression": 0.8997,
+            "cumulative_adversity_integral": 6.9718,
+            "cumulative_nurturance_integral": 0.2534,
+            "cumulative_epistemic_integral": 1.3139
+          }
+        },
+        "night_consolidation": {
+          "ADAM-01": {
+            "sleep_ticks": 80,
+            "swr_bursts_fired": 26,
+            "cortical_synaptic_delta_norm": 0.0013238030936832956,
+            "striatal_habit_delta_norm": 0.000226873376959702,
+            "amygdala_consolidation_delta": 0.0009157483873423189,
+            "adenosine_before": 0.5253435987124095,
+            "adenosine_after": 0.1596010955195566,
+            "surviving_engrams": 23
+          },
+          "ABEL-02": {
+            "sleep_ticks": 80,
+            "swr_bursts_fired": 27,
+            "cortical_synaptic_delta_norm": 0.002552921230506655,
+            "striatal_habit_delta_norm": 0.0001652451842346636,
+            "amygdala_consolidation_delta": 0.0008596660954935942,
+            "adenosine_before": 0.35369419312088535,
+            "adenosine_after": 0.1596010955195566,
+            "surviving_engrams": 20
+          }
+        }
+      },
+      {
+        "season": 3,
+        "regime": "season_3_shutdown_brownout_and_reprimand",
+        "mean_free_energy": {
+          "ADAM-01": 9.7327,
+          "ABEL-02": 6.522
+        },
+        "epigenetics_snapshot": {
+          "ADAM-01": {
+            "nr3c1_gr_methylation": 0.6602,
+            "ht1a_promoter_expression": 0.4612,
+            "d1_striatal_expression": 0.8458,
+            "ne_beta_expression": 1.42,
+            "ach_m1_expression": 1.044,
+            "oxtr_expression": 0.6796,
+            "cumulative_adversity_integral": 22.8005,
+            "cumulative_nurturance_integral": 1.1152,
+            "cumulative_epistemic_integral": 1.4448
+          },
+          "ABEL-02": {
+            "nr3c1_gr_methylation": 0.3783,
+            "ht1a_promoter_expression": 0.7219,
+            "d1_striatal_expression": 0.965,
+            "ne_beta_expression": 1.26,
+            "ach_m1_expression": 1.0491,
+            "oxtr_expression": 0.8312,
+            "cumulative_adversity_integral": 11.6219,
+            "cumulative_nurturance_integral": 0.3097,
+            "cumulative_epistemic_integral": 1.6088
+          }
+        },
+        "night_consolidation": {
+          "ADAM-01": {
+            "sleep_ticks": 80,
+            "swr_bursts_fired": 27,
+            "cortical_synaptic_delta_norm": 0.0008871945445889651,
+            "striatal_habit_delta_norm": 0.0005341628511814633,
+            "amygdala_consolidation_delta": 0.0011980128147115465,
+            "adenosine_before": 1.0,
+            "adenosine_after": 0.2751743026199255,
+            "surviving_engrams": 31
+          },
+          "ABEL-02": {
+            "sleep_ticks": 80,
+            "swr_bursts_fired": 26,
+            "cortical_synaptic_delta_norm": 0.0010548613231726733,
+            "striatal_habit_delta_norm": 0.00012630365108634578,
+            "amygdala_consolidation_delta": 0.0009839097110670991,
+            "adenosine_before": 0.3393451724044122,
+            "adenosine_after": 0.1596010955195566,
+            "surviving_engrams": 23
+          }
+        }
+      },
+      {
+        "season": 4,
+        "regime": "season_4_power_restored_contested_feast",
+        "mean_free_energy": {
+          "ADAM-01": 8.1126,
+          "ABEL-02": 7.7572
+        },
+        "epigenetics_snapshot": {
+          "ADAM-01": {
+            "nr3c1_gr_methylation": 0.82,
+            "ht1a_promoter_expression": 0.42,
+            "d1_striatal_expression": 0.8984,
+            "ne_beta_expression": 1.42,
+            "ach_m1_expression": 1.0428,
+            "oxtr_expression": 0.5702,
+            "cumulative_adversity_integral": 32.9364,
+            "cumulative_nurturance_integral": 2.863,
+            "cumulative_epistemic_integral": 1.763
+          },
+          "ABEL-02": {
+            "nr3c1_gr_methylation": 0.5401,
+            "ht1a_promoter_expression": 0.5856,
+            "d1_striatal_expression": 1.0126,
+            "ne_beta_expression": 1.3993,
+            "ach_m1_expression": 1.056,
+            "oxtr_expression": 0.7722,
+            "cumulative_adversity_integral": 19.1505,
+            "cumulative_nurturance_integral": 2.5735,
+            "cumulative_epistemic_integral": 1.8507
+          }
+        },
+        "night_consolidation": {
+          "ADAM-01": {
+            "sleep_ticks": 80,
+            "swr_bursts_fired": 27,
+            "cortical_synaptic_delta_norm": 0.0020610724396874502,
+            "striatal_habit_delta_norm": 0.000544973545402172,
+            "amygdala_consolidation_delta": 0.0011980128147115465,
+            "adenosine_before": 1.0,
+            "adenosine_after": 0.2751743026199255,
+            "surviving_engrams": 36
+          },
+          "ABEL-02": {
+            "sleep_ticks": 80,
+            "swr_bursts_fired": 26,
+            "cortical_synaptic_delta_norm": 0.009320395116276359,
+            "striatal_habit_delta_norm": 8.682560246597859e-05,
+            "amygdala_consolidation_delta": 0.01166029425803572,
+            "adenosine_before": 0.3953400775937521,
+            "adenosine_after": 0.1596010955195566,
+            "surviving_engrams": 31
+          }
+        }
+      }
+    ],
+    "role_in_arena": "unfavored_scarcity_survivor"
+  }
+}

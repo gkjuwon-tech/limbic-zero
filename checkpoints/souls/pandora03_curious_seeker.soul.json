@@ -1,0 +1,139 @@
+{
+  "format_version": "limbic0.soul_capsule.v1",
+  "capsule_id": "limbic0_pandora03_curious_seeker",
+  "organism_id": "PANDORA-03",
+  "biographical_regime": "safe_enriched_lorenz_mystery_sanctuary",
+  "created_at_utc": "2026-11-14T10:17:28.845897+00:00",
+  "capsule_sha256": "92d0700b1847aab89f9814c83ed7f1daba666189abd2f2cde50443ce4de29e80",
+  "species_genome_sha256": "27a7b8f9a18b8d20a6c20b422e17e3dbe09dfcc7daa515e8fbe4a5082d61a0b5",
+  "maturation_counters": {
+    "total_waking_ticks": 960,
+    "total_sleep_cycles": 4,
+    "total_swr_consolidations": 306,
+    "consolidated_ca3_engram_count": 63
+  },
+  "epigenetic_profile": {
+    "nr3c1_gr_methylation": 0.59469,
+    "ht1a_promoter_expression": 0.52131,
+    "d1_striatal_expression": 0.93532,
+    "ne_beta_expression": 1.42,
+    "ach_m1_expression": 1.07565,
+    "oxtr_expression": 0.70422,
+    "cumulative_adversity_integral": 20.1527,
+    "cumulative_nurturance_integral": 0.24035,
+    "cumulative_epistemic_integral": 2.49159
+  },
+  "neuromodulator_resting_summary": {
+    "dopamine_extracellular": 0.18278,
+    "norepinephrine_extracellular": 0.15194,
+    "serotonin_extracellular": 0.51875,
+    "acetylcholine_extracellular": 0.29803,
+    "effective_discount_gamma": 0.81584,
+    "d1_sensitivity": 0.93705,
+    "ne_beta_sensitivity": 1.09741,
+    "ht1a_sensitivity": 0.53154,
+    "ach_m1_sensitivity": 1.07324,
+    "gr_receptor_sensitivity": 0.55425,
+    "oxytocin_receptor_sensitivity": 0.71468,
+    "bla_defensive_norm": 0.33361,
+    "bla_appetitive_norm": 0.15187,
+    "itc_extinction_norm": 0.00261
+  },
+  "connectome_divergence_from_birth": {
+    "thalamus_world_model": 3.42346,
+    "amygdala_circuit": 0.22753,
+    "pallium_sensorimotor": 0.02566,
+    "pallium_insula_dacc": 0.5772,
+    "pallium_prefrontal": 0.44823,
+    "pallium_intercolumn": 0.65754,
+    "basal_ganglia_striatum": 0.90668,
+    "subcortical_critic": 5.01362,
+    "other_projections": 0.0,
+    "total_connectome_l2": 6.22072
+  },
+  "manifold_calibration": {
+    "latent_bridge_dim": 228,
+    "cortical_participation_ratio": 3.8429,
+    "resting_attractor_l2_norm": 2.9947,
+    "flashback_signature_l2_norm": 2.9132,
+    "resting_biophysical_coordinates": {
+      "allostatic_relief_balance": -0.478,
+      "noradrenergic_pag_mobilization": -0.196,
+      "serotonergic_stn_restraint": 0.5355,
+      "cholinergic_epistemic_drive": 0.0733,
+      "amygdalar_conditioned_vigilance": -0.0481
+    }
+  },
+  "top_consolidated_engrams": [
+    {
+      "timestamp": 10.8,
+      "consolidation_shield": 1.0,
+      "vitality": 0.9999,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        -1.2907,
+        0.1765,
+        0.1235,
+        0.1414
+      ]
+    },
+    {
+      "timestamp": 41.5,
+      "consolidation_shield": 1.0,
+      "vitality": 0.9883,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        -0.0616,
+        0.1482,
+        0.1634,
+        0.128
+      ]
+    },
+    {
+      "timestamp": 40.5,
+      "consolidation_shield": 1.0,
+      "vitality": 0.9872,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        -0.314,
+        0.1566,
+        0.1493,
+        0.1365
+      ]
+    },
+    {
+      "timestamp": 39.5,
+      "consolidation_shield": 1.0,
+      "vitality": 0.9861,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        -0.2586,
+        0.1434,
+        0.1331,
+        0.1012
+      ]
+    },
+    {
+      "timestamp": 39.25,
+      "consolidation_shield": 1.0,
+      "vitality": 0.9858,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        -0.1512,
+        0.1778,
+        0.1493,
+        0.1096
+      ]
+    },
+    {
+      "timestamp": 35.25,
+      "consolidation_shield": 1.0,
+      "vitality": 0.977,
+      "somatic_marker_relief_trauma_threat_novelty": [
+        -0.1482,
+        0.1485,
+        0.1503,
+        0.0824
+      ]
+    }
+  ],
+  "biographical_summary": {
+    "mystery_artifacts_count": 3,
+    "final_world_model_mse": 0.13689
+  }
+}

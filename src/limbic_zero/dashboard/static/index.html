@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PROJECT LIMBIC-0 — Stage 3 Intracranial Neuro-fMRI &amp; Truman Dome Biosafety Observatory</title>
+  <meta
+    name="description"
+    content="Real-time Intracranial 80Hz LFP Oscilloscope, 228D SVD Neural Manifold, Subcortical Receptor Subtype Telemetry, Hospital ICU Vitals, and Creator God-Mode Console for Project LIMBIC-0."
+  />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="top-bar" id="observatory-header">
+    <div class="brand-cluster">
+      <h1>LIMBIC-0 // NEURO-fMRI &amp; BIOSAFETY OBSERVATORY</h1>
+      <span class="brand-subtitle">Stage 3 Live Closed-Loop Mind-Body-Continuum Telemetry (Zero Scripted Emotions)</span>
+    </div>
+
+    <div class="header-controls">
+      <div class="status-chip" id="stream-status-chip">
+        <span class="status-dot" id="stream-status-dot"></span>
+        <span id="sim-clock-readout">t = 0.00s | Tick 0</span>
+      </div>
+
+      <div class="segmented-group" role="group" aria-label="Focal Organism Selector">
+        <button type="button" class="seg-btn adam-active" id="focus-adam-btn" data-agent="ADAM-01">ADAM-01</button>
+        <button type="button" class="seg-btn" id="focus-abel-btn" data-agent="ABEL-02">ABEL-02</button>
+      </div>
+
+      <div class="segmented-group" role="group" aria-label="Simulation Speed Controls">
+        <button type="button" class="seg-btn" id="sim-pause-btn">PAUSE</button>
+        <button type="button" class="seg-btn" id="sim-step-btn">STEP</button>
+        <button type="button" class="seg-btn" id="speed-025-btn" data-speed="0.25">0.25x</button>
+        <button type="button" class="seg-btn active" id="speed-1-btn" data-speed="1.0">1x</button>
+        <button type="button" class="seg-btn" id="speed-2-btn" data-speed="2.0">2x</button>
+        <button type="button" class="seg-btn" id="speed-4-btn" data-speed="4.0">4x</button>
+      </div>
+
+      <button type="button" class="action-btn" id="reset-arena-btn" title="Reset Arena &amp; Reseed">RESET DOME</button>
+    </div>
+  </header>
+
+  <main class="workstation-grid" id="observatory-main">
+    <!-- ==================== LEFT COLUMN: TRUMAN DOME & SENSORIUM ==================== -->
+    <div class="column-stack col-left">
+      <section class="panel" aria-labelledby="dome-panel-title">
+        <div class="panel-header">
+          <h2 class="panel-title" id="dome-panel-title">2D Eulerian Truman Dome Continuum</h2>
+          <span class="panel-meta" id="dome-atmo-meta">O2 21.3 kPa | CO2 0.04 kPa | Vent 100%</span>
+        </div>
+        <div class="panel-body">
+          <div class="toolbar-row">
+            <label for="continuum-layer-select" class="metric-sub">
+              Field:
+              <select id="continuum-layer-select" class="select-input">
+                <option value="odor_stress" selected>Stress Kairomone Plume</option>
+                <option value="o2_kpa">Oxygen Partial Pressure (O2 kPa)</option>
+                <option value="co2_kpa">Carbon Dioxide (CO2 kPa)</option>
+                <option value="air_temp_c">Air Temperature (°C)</option>
+                <option value="humidity_rel">Relative Humidity (%)</option>
+                <option value="odor_nutrient">Nutrient Odor Plume</option>
+                <option value="odor_water">Freshwater Vapor Plume</option>
+                <option value="terrain">Terrain Biomes</option>
+              </select>
+            </label>
+
+            <label for="arena-click-mode" class="metric-sub">
+              Click Tool:
+              <select id="arena-click-mode" class="select-input">
+                <option value="drop_crystal" selected>Drop Nutrient Crystal</option>
+                <option value="spawn_mystery">Deploy Lorenz Box</option>
+                <option value="move_hazard">Move Thermal Vent</option>
+                <option value="relocate_focal">Relocate Focal Organism</option>
+              </select>
+            </label>
+
+            <button type="button" class="seg-btn active" id="toggle-rays-btn">33-RAY RETINA: ON</button>
+          </div>
+
+          <div class="canvas-wrap">
+            <canvas id="arena-canvas" class="arena-canvas" width="520" height="520"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="sensorium-panel-title">
+        <div class="panel-header">
+          <h2 class="panel-title" id="sensorium-panel-title">Egocentric Sensorium &amp; 8-Sector Tissue Ring</h2>
+          <span class="panel-meta" id="sensorium-meta">414D Nerve Bundle | Nociception 0.000</span>
+        </div>
+        <div class="panel-body">
+          <div class="canvas-wrap">
+            <canvas id="sensorium-canvas" class="sensorium-canvas" width="520" height="156"></canvas>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ==================== CENTER COLUMN: INTRACRANIAL fMRI & MANIFOLD ==================== -->
+    <div class="column-stack col-center">
+      <section class="panel" aria-labelledby="lfp-panel-title">
+        <div class="panel-header">
+          <h2 class="panel-title" id="lfp-panel-title">Intracranial 80 Hz Dipole LFP &amp; FFT Band Spectrum</h2>
+          <div>
+            <span class="swr-badge" id="swr-indicator">CA3 SWR REPLAY: IDLE (0)</span>
+            <span class="panel-meta" id="lfp-entropy-meta">H_spec = 0.00</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="canvas-wrap">
+            <canvas id="lfp-canvas" class="oscilloscope-canvas" width="680" height="176"></canvas>
+          </div>
+          <div class="kv-grid-4" style="margin-top: 8px;">
+            <div class="metric-cell">
+              <span class="metric-label">Delta (0.5-4 Hz)</span>
+              <span class="metric-val" id="band-delta-val">0.0%</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-label">Theta (4-8 Hz)</span>
+              <span class="metric-val" id="band-theta-val">0.0%</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-label">Alpha/Beta (8-22 Hz)</span>
+              <span class="metric-val" id="band-ab-val">0.0%</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-label">Low-Gamma (22-40 Hz)</span>
+              <span class="metric-val" id="band-gamma-val">0.0%</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="manifold-panel-title">
+        <div class="panel-header">
+          <h2 class="panel-title" id="manifold-panel-title">228D Continuous Mind Manifold (Procrustes 3D SVD)</h2>
+          <span class="panel-meta" id="manifold-meta">PR Dim = 1.00 | Δ_L2(ADAM, ABEL) = 0.00</span>
+        </div>
+        <div class="panel-body">
+          <div class="canvas-wrap">
+            <canvas id="manifold-canvas" class="manifold-canvas" width="680" height="224"></canvas>
+          </div>
+          <div class="bar-list" id="anatomical-shares-bars" style="margin-top: 8px;"></div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="neuromod-panel-title">
+        <div class="panel-header">
+          <h2 class="panel-title" id="neuromod-panel-title">Subcortical Nuclei &amp; Opposing Receptor Subtypes</h2>
+          <span class="panel-meta" id="critic-td-meta">Critic V(s) = +0.000 | TD δ = +0.000</span>
+        </div>
+        <div class="panel-body">
+          <div class="receptor-grid" id="receptor-matrix">
+            <div class="receptor-block">
+              <div class="receptor-head">
+                <span class="receptor-title">VTA / LHb Dopamine</span>
+                <span class="receptor-conc" id="nm-da-conc" style="color: var(--ch-adam);">0.000</span>
+              </div>
+              <div class="mini-bar-row"><span>D1 (Gs Go)</span><div class="bar-track"><div class="bar-fill" id="bar-d1" style="background: var(--ch-adam); width: 0%;"></div></div><span class="mono" id="val-d1">0.00</span></div>
+              <div class="mini-bar-row"><span>D2 (Gi Stop)</span><div class="bar-track"><div class="bar-fill" id="bar-d2" style="background: var(--ch-cyan); width: 0%;"></div></div><span class="mono" id="val-d2">0.00</span></div>
+            </div>
+
+            <div class="receptor-block">
+              <div class="receptor-head">
+                <span class="receptor-title">LC Norepinephrine (Arnsten)</span>
+                <span class="receptor-conc" id="nm-ne-conc" style="color: var(--ch-abel);">0.000</span>
+              </div>
+              <div class="mini-bar-row"><span>α2A Focus</span><div class="bar-track"><div class="bar-fill" id="bar-a2a" style="background: var(--ch-cyan); width: 0%;"></div></div><span class="mono" id="val-a2a">0.00</span></div>
+              <div class="mini-bar-row"><span>β1/α1 Storm</span><div class="bar-track"><div class="bar-fill" id="bar-neb" style="background: var(--ch-crimson); width: 0%;"></div></div><span class="mono" id="val-neb">0.00</span></div>
+            </div>
+
+            <div class="receptor-block">
+              <div class="receptor-head">
+                <span class="receptor-title">DRN Serotonin (Horizon γ)</span>
+                <span class="receptor-conc" id="nm-5ht-conc" style="color: var(--ch-sage);">0.000</span>
+              </div>
+              <div class="mini-bar-row"><span>5-HT1A Restr</span><div class="bar-track"><div class="bar-fill" id="bar-ht1a" style="background: var(--ch-sage); width: 0%;"></div></div><span class="mono" id="val-ht1a">0.00</span></div>
+              <div class="mini-bar-row"><span>Horizon γ</span><div class="bar-track"><div class="bar-fill" id="bar-gamma-h" style="background: var(--ch-gold); width: 0%;"></div></div><span class="mono" id="val-gamma-h">0.95</span></div>
+            </div>
+
+            <div class="receptor-block">
+              <div class="receptor-head">
+                <span class="receptor-title">NBM Acetylcholine &amp; A1</span>
+                <span class="receptor-conc" id="nm-ach-conc" style="color: var(--ch-cyan);">0.000</span>
+              </div>
+              <div class="mini-bar-row"><span>M1 K+ Block</span><div class="bar-track"><div class="bar-fill" id="bar-ach-m1" style="background: var(--ch-cyan); width: 0%;"></div></div><span class="mono" id="val-ach-m1">0.00</span></div>
+              <div class="mini-bar-row"><span>Adenosine A1</span><div class="bar-track"><div class="bar-fill" id="bar-ado-a1" style="background: var(--ch-abel); width: 0%;"></div></div><span class="mono" id="val-ado-a1">0.00</span></div>
+            </div>
+          </div>
+
+          <div class="canvas-wrap" style="margin-top: 9px;">
+            <canvas id="history-canvas" class="history-canvas" width="680" height="148"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="limbic-bg-panel-title">
+        <div class="panel-header">
+          <h2 class="panel-title" id="limbic-bg-panel-title">Amygdala Conditioning, Basal Ganglia &amp; CA3 Flashbulb Engrams</h2>
+          <span class="panel-meta" id="bg-pag-meta">STN Brake 0.00 | dlPAG 0.00 | PFC Norm 0.000</span>
+        </div>
+        <div class="panel-body">
+          <div class="kv-grid-4" style="margin-bottom: 8px;">
+            <div class="metric-cell">
+              <span class="metric-label">BLA Trauma (Raw)</span>
+              <span class="metric-val" id="amyg-bla-def">0.000</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-label">ITC Safety Brake</span>
+              <span class="metric-val" id="amyg-itc">0.000</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-label">CeA Output</span>
+              <span class="metric-val" id="amyg-cea">0.000</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-label">dACC Conflict</span>
+              <span class="metric-val" id="pall-dacc">0.000</span>
+            </div>
+          </div>
+
+          <table class="engram-table" aria-label="Top Consolidated Hippocampal CA3 Engrams">
+            <thead>
+              <tr>
+                <th>Encoded t(s)</th>
+                <th>Shield</th>
+                <th>Vitality</th>
+                <th>Relief</th>
+                <th>Trauma</th>
+                <th>Threat</th>
+                <th>Novelty</th>
+              </tr>
+            </thead>
+            <tbody id="engram-tbody">
+              <tr><td colspan="7">Awaiting hippocampal episodic consolidation...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- ==================== RIGHT COLUMN: GOD-MODE CONSOLE & HOSPITAL ICU ==================== -->
+    <div class="column-stack col-right">
+      <section class="panel" aria-labelledby="god-panel-title">
+        <div class="panel-header">
+          <h2 class="panel-title" id="god-panel-title">Creator God-Mode Intervention Console (대표님 통제실)</h2>
+          <span class="panel-meta" id="god-target-badge">Target: ADAM-01</span>
+        </div>
+        <div class="panel-body">
+          <div class="god-section">
+            <div class="god-label">
+              <span>1. Acoustic Reinforcement &amp; Cain-Abel Asymmetry</span>
+              <select id="god-target-select" class="select-input">
+                <option value="ADAM-01" selected>Target: ADAM-01</option>
+                <option value="ABEL-02">Target: ABEL-02</option>
+              </select>
+            </div>
+            <div class="btn-grid-2">
+              <button type="button" class="action-btn positive-btn" id="btn-praise">
+                <span>Harmonic Praise</span><span class="mono">+Consonance</span>
+              </button>
+              <button type="button" class="action-btn hazard-btn" id="btn-reprimand">
+                <span>Rough Reprimand</span><span class="mono">Shockwave</span>
+              </button>
+              <button type="button" class="action-btn positive-btn" id="btn-favoritism">
+                <span>Favoritism Crystal Gift</span><span class="mono">+0.80 E</span>
+              </button>
+              <button type="button" class="action-btn" id="btn-mystery-near">
+                <span>Drop Lorenz Box</span><span class="mono">0-Cal Chaos</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="god-section">
+            <div class="god-label">
+              <span>2. Existential Power-Rail Brownout &amp; Somatic Pyrogen</span>
+            </div>
+            <div class="slider-row">
+              <span>Brownout Target V</span>
+              <input type="range" id="slider-rail-v" min="0.05" max="0.90" step="0.05" value="0.15" />
+              <span class="mono" id="val-rail-v">0.15V</span>
+            </div>
+            <div class="btn-grid-2">
+              <button type="button" class="action-btn hazard-btn" id="btn-start-brownout">
+                <span>Start Power Brownout</span><span class="mono">AC Ripple</span>
+              </button>
+              <button type="button" class="action-btn positive-btn" id="btn-restore-power">
+                <span>Restore 1.0V Rail</span><span class="mono">Clean DC</span>
+              </button>
+              <button type="button" class="action-btn hazard-btn" id="btn-inject-il6">
+                <span>Inject IL-6 Pyrogen</span><span class="mono">Fever +Q10</span>
+              </button>
+              <button type="button" class="action-btn positive-btn" id="btn-icu-resuscitate">
+                <span>ICU Resuscitation</span><span class="mono">Keep Memory</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="god-section">
+            <div class="god-label">
+              <span>3. Hermetic Dome Atmosphere &amp; Resource Scarcity</span>
+            </div>
+            <div class="slider-row">
+              <span>Dome Ventilation</span>
+              <input type="range" id="slider-ventilation" min="0.0" max="1.5" step="0.05" value="1.0" />
+              <span class="mono" id="val-ventilation">100%</span>
+            </div>
+            <div class="slider-row">
+              <span>Thermal Vent Flux</span>
+              <input type="range" id="slider-hazard-watts" min="0" max="650" step="10" value="440" />
+              <span class="mono" id="val-hazard-watts">440W</span>
+            </div>
+            <div class="btn-grid-2">
+              <button type="button" class="action-btn hazard-btn" id="btn-famine-drain">
+                <span>Trigger Oasis Famine</span><span class="mono">0% Food</span>
+              </button>
+              <button type="button" class="action-btn positive-btn" id="btn-oasis-refill">
+                <span>Refill Nutrient Oasis</span><span class="mono">100% Food</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="toast-banner" id="god-toast-readout">Ready — All interventions act strictly on physical/somatic boundary conditions.</div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="icu-panel-title">
+        <div class="panel-header">
+          <h2 class="panel-title" id="icu-panel-title">Hospital ICU Whole-Body Physiology Monitor</h2>
+          <span class="panel-meta" id="icu-alive-meta">ALIVE | F(s) = 0.0000</span>
+        </div>
+        <div class="panel-body">
+          <div class="kv-grid-3" style="margin-bottom: 8px;">
+            <div class="metric-cell">
+              <span class="metric-label">Heart Rate / MAP</span>
+              <span class="metric-val" id="icu-hr-map">72 bpm</span>
+              <span class="metric-sub" id="icu-map-sub">90 mmHg</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-label">PaO2 / PaCO2</span>
+              <span class="metric-val" id="icu-blood-gas">96 / 40</span>
+              <span class="metric-sub" id="icu-spo2-sub">SpO2 98.0%</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-label">pH / Lactate</span>
+              <span class="metric-val" id="icu-ph-lac">7.400</span>
+              <span class="metric-sub" id="icu-lac-sub">Lac 1.00 mM</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-label">Brain ATP / Rail</span>
+              <span class="metric-val" id="icu-brain-atp">0.940</span>
+              <span class="metric-sub" id="icu-rail-sub">Rail 1.00V</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-label">Glucose / Osm</span>
+              <span class="metric-val" id="icu-glucose">90 mg/dL</span>
+              <span class="metric-sub" id="icu-osm-sub">290 mOsm</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-label">Core / Setpoint</span>
+              <span class="metric-val" id="icu-temp">37.00°C</span>
+              <span class="metric-sub" id="icu-setpoint-sub">Set 37.00°C</span>
+            </div>
+          </div>
+
+          <div class="bar-list" id="icu-perfusion-bars"></div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="audit-panel-title">
+        <div class="panel-header">
+          <h2 class="panel-title" id="audit-panel-title">Immutable SHA-256 Telemetry Audit Chain</h2>
+          <button type="button" class="seg-btn" id="verify-chain-btn">VERIFY INTEGRITY</button>
+        </div>
+        <div class="panel-body">
+          <div class="audit-log" id="audit-log-box"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,626 @@
+/* Project LIMBIC-0 — Stage 3 Clinical Neuro-fMRI & Truman Dome Biosafety Observatory
+ * Design System: Swiss Clinical Neuro-Physiology & Oscilloscope Instrumentation
+ * Zero purple accents, zero glowing neon borders, zero decorative clutter.
+ */
+
+:root {
+  --bg-void: hsl(212, 16%, 6%);
+  --bg-panel: hsl(212, 14%, 9.5%);
+  --bg-elevated: hsl(212, 13%, 13%);
+  --bg-recessed: hsl(212, 18%, 4.8%);
+  --bg-hover: hsl(212, 13%, 16.5%);
+
+  --border-hairline: hsl(212, 12%, 16.5%);
+  --border-strong: hsl(212, 12%, 24%);
+
+  --text-primary: hsl(210, 18%, 93%);
+  --text-secondary: hsl(210, 11%, 64%);
+  --text-muted: hsl(210, 9%, 44%);
+
+  /* Organism & Physiological Telemetry Channels */
+  --ch-adam: hsl(160, 72%, 46%);
+  --ch-adam-soft: hsla(160, 72%, 46%, 0.16);
+  --ch-abel: hsl(38, 92%, 56%);
+  --ch-abel-soft: hsla(38, 92%, 56%, 0.16);
+  --ch-cyan: hsl(194, 82%, 52%);
+  --ch-crimson: hsl(4, 78%, 56%);
+  --ch-crimson-soft: hsla(4, 78%, 56%, 0.16);
+  --ch-sage: hsl(88, 54%, 52%);
+  --ch-gold: hsl(46, 88%, 56%);
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-void);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.42;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Top Instrumentation Header */
+.top-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: linear-gradient(180deg, hsl(212, 15%, 11%) 0%, var(--bg-panel) 100%);
+  border-bottom: 1px solid var(--border-hairline);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.brand-cluster {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.brand-cluster h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.brand-subtitle {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+}
+
+.header-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  background: var(--bg-recessed);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ch-adam);
+}
+
+.status-dot.paused {
+  background: var(--ch-abel);
+}
+
+.status-dot.disconnected {
+  background: var(--ch-crimson);
+}
+
+.segmented-group {
+  display: inline-flex;
+  background: var(--bg-recessed);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.seg-btn {
+  appearance: none;
+  border: none;
+  border-right: 1px solid var(--border-hairline);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 9px;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.seg-btn:last-child {
+  border-right: none;
+}
+
+.seg-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.seg-btn.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.seg-btn.adam-active {
+  background: var(--ch-adam-soft);
+  color: var(--ch-adam);
+}
+
+.seg-btn.abel-active {
+  background: var(--ch-abel-soft);
+  color: var(--ch-abel);
+}
+
+/* Main 3-Column Workstation Grid */
+.workstation-grid {
+  display: grid;
+  grid-template-columns: minmax(330px, 1.04fr) minmax(410px, 1.38fr) minmax(320px, 0.98fr);
+  gap: 12px;
+  padding: 12px 14px 20px;
+  align-items: start;
+}
+
+@media (max-width: 1320px) {
+  .workstation-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .col-right {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 880px) {
+  .workstation-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.column-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Clinical Instrument Panel */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: hsl(212, 14%, 11%);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.panel-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.panel-body {
+  padding: 10px 12px;
+}
+
+/* Canvas Viewports */
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  background: var(--bg-recessed);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.arena-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  cursor: crosshair;
+}
+
+.oscilloscope-canvas {
+  display: block;
+  width: 100%;
+  height: 172px;
+}
+
+.manifold-canvas {
+  display: block;
+  width: 100%;
+  height: 224px;
+  cursor: grab;
+}
+
+.manifold-canvas:active {
+  cursor: grabbing;
+}
+
+.sensorium-canvas {
+  display: block;
+  width: 100%;
+  height: 146px;
+}
+
+.history-canvas {
+  display: block;
+  width: 100%;
+  height: 148px;
+}
+
+/* Toolbar Rows */
+.toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.select-input,
+.num-input {
+  background: var(--bg-recessed);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 4px 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.select-input:focus,
+.num-input:focus {
+  outline: 1px solid var(--ch-cyan);
+}
+
+/* Telemetry Readout Grids */
+.kv-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.kv-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.kv-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.metric-cell {
+  background: var(--bg-recessed);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+}
+
+.metric-label {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 2px;
+}
+
+.metric-val {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.metric-sub {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+/* Bar Gauges */
+.bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 116px 1fr 56px;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.bar-name {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar-track {
+  height: 7px;
+  background: var(--bg-recessed);
+  border: 1px solid var(--border-hairline);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bar-fill {
+  height: 100%;
+  transition: width 80ms linear;
+}
+
+.bar-num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* Neuromodulator Dual-Receptor Matrix */
+.receptor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.receptor-block {
+  background: var(--bg-recessed);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  padding: 8px 9px;
+}
+
+.receptor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.receptor-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.receptor-conc {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.mini-bar-row {
+  display: grid;
+  grid-template-columns: 66px 1fr 38px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+/* Hippocampal Engram Table */
+.engram-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.engram-table th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.engram-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid hsla(212, 12%, 16%, 0.5);
+  color: var(--text-secondary);
+}
+
+/* God-Mode Intervention Console */
+.god-section {
+  border-top: 1px solid var(--border-hairline);
+  padding-top: 9px;
+  margin-top: 9px;
+}
+
+.god-section:first-child {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.god-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.btn-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.action-btn {
+  appearance: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 7px 9px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  transition: background-color 120ms ease, border-color 120ms ease, transform 60ms ease;
+}
+
+.action-btn:hover {
+  background: var(--bg-hover);
+  border-color: hsl(212, 14%, 32%);
+}
+
+.action-btn:active {
+  transform: translateY(1px);
+}
+
+.action-btn.hazard-btn {
+  background: hsla(4, 65%, 20%, 0.36);
+  border-color: hsla(4, 65%, 45%, 0.45);
+}
+
+.action-btn.hazard-btn:hover {
+  background: hsla(4, 65%, 26%, 0.52);
+}
+
+.action-btn.positive-btn {
+  background: hsla(160, 60%, 18%, 0.34);
+  border-color: hsla(160, 60%, 40%, 0.42);
+}
+
+.action-btn.positive-btn:hover {
+  background: hsla(160, 60%, 24%, 0.5);
+}
+
+.slider-row {
+  display: grid;
+  grid-template-columns: 112px 1fr 48px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--ch-cyan);
+  cursor: pointer;
+}
+
+/* Audit Ledger Stream */
+.audit-log {
+  max-height: 154px;
+  overflow-y: auto;
+  background: var(--bg-recessed);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.48;
+}
+
+.audit-entry {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid hsla(212, 12%, 15%, 0.55);
+  color: var(--text-secondary);
+}
+
+.audit-hash {
+  color: var(--ch-adam);
+}
+
+.toast-banner {
+  margin-top: 8px;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-recessed);
+  border: 1px solid var(--border-strong);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ch-cyan);
+  min-height: 28px;
+}
+
+.swr-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  background: var(--bg-recessed);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-muted);
+}
+
+.swr-badge.flashing {
+  background: var(--ch-abel-soft);
+  color: var(--ch-abel);
+  border-color: hsla(38, 92%, 56%, 0.5);
+}
