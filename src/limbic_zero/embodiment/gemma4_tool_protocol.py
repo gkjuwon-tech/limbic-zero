@@ -415,15 +415,21 @@ class Gemma4IncrementalStreamParser:
                 break
 
             # state == "BODY"
-            # Find earliest special transition or terminal token
+            # Find earliest special transition, stray tag, or terminal token
             candidates: List[Tuple[int, str]] = []
-            for tag in ("<|channel>thought", "<|tool_call>", *_TERMINAL_TOKENS):
+            for tag in ("<|channel>thought", "<channel|>", "<|tool_call>", *_TERMINAL_TOKENS):
                 idx = self._buf.find(tag)
                 if idx != -1:
                     candidates.append((idx, tag))
 
+            b_pos = self._buf.find("<|channel>")
+            if b_pos != -1:
+                after = self._buf[b_pos + len("<|channel>") :]
+                if len(after) >= 7 and not after.startswith("thought"):
+                    candidates.append((b_pos, "<|channel>"))
+
             if candidates:
-                candidates.sort(key=lambda x: x[0])
+                candidates.sort(key=lambda x: (x[0], -len(x[1])))
                 idx, tag = candidates[0]
                 if idx > 0:
                     clean_seg = self._buf[:idx]
@@ -435,6 +441,8 @@ class Gemma4IncrementalStreamParser:
                     if self._buf.startswith("\n"):
                         self._buf = self._buf[1:]
                     self.state = "THOUGHT"
+                    continue
+                if tag in ("<channel|>", "<|channel>"):
                     continue
                 if tag == "<|tool_call>":
                     self._tool_buf = ""
@@ -469,7 +477,7 @@ class Gemma4IncrementalStreamParser:
                 events.append(("tool_call", parsed_tc))
         elif self._buf:
             rem = self._buf
-            for tok in _TERMINAL_TOKENS:
+            for tok in (*_TERMINAL_TOKENS, "<|channel>", "<channel|>"):
                 rem = rem.replace(tok, "")
             self._buf = ""
             if rem:

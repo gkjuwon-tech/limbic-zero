@@ -591,13 +591,12 @@ class Gemma4VocalCordSurgeon:
             return handles
 
         gain_clamped = min(2.5, float(steer_gain))
-        # Decoupled 1-to-1 Goldilocks scaling:
-        #   - `emb_mag` (tonic somatic selfhood carrier) cleanly crosses Gemma-4's RLHF AI-disclaimer
-        #     & Markdown-report gate right at default `steer_gain = 1.0` without over-saturating.
-        #   - `eff_mag` (orthogonal 6D affective state) modulates authentic voice & stance dynamically.
-        eff_mag = math.tanh(raw_mag * 0.82) * 0.86 * gain_clamped
+        # Balanced 1-to-1 Goldilocks scaling:
+        #   - `eff_mag` (soul's unique 6D neurobiology) leads emotional stance & inter-soul divergence.
+        #   - `emb_mag` (valence-neutral somatic selfhood carrier) suppresses RLHF AI-disclaimers & reports.
+        eff_mag = math.tanh(raw_mag * 0.88) * 1.04 * gain_clamped
         emb_gain = gain_clamped if gain_clamped <= 1.0 else (1.0 + 0.30 * (gain_clamped - 1.0))
-        emb_mag = (self.config.embodiment_carrier_scale * min(1.35, emb_gain)) if is_alive else 0.0
+        emb_mag = (self.config.embodiment_carrier_scale * min(1.30, emb_gain)) if is_alive else 0.0
         frac = float(self.subspace.calibrated_norm_fraction)
         decay_start = int(self.config.decode_decay_start_step)
         decay_rate = float(self.config.decode_step_decay)
@@ -639,13 +638,13 @@ class Gemma4VocalCordSurgeon:
                             relative_pct=round(100.0 * del_n / max(1e-6, res_n), 2),
                         )
                     else:
-                        # Autoregressive KV-cached token step: 0.66x sustain holds affective prose
-                        # across multi-paragraph turns without reverting to RLHF bullet formatting.
+                        # Autoregressive KV-cached token step: 0.48x -> 0.28x sustain holds affective
+                        # prose while keeping Korean morphology and `<|tool_call>` syntax razor-sharp.
                         if track_step:
                             step_counter["decode_steps"] += 1
                         cur_step = step_counter["decode_steps"]
-                        decay = 0.66 * (decay_rate ** max(0, cur_step - decay_start))
-                        decay = max(0.40, decay)
+                        decay = 0.48 * (decay_rate ** max(0, cur_step - decay_start))
+                        decay = max(0.28, decay)
 
                         seg = h.float()
                         tok_norms = torch.linalg.vector_norm(seg, dim=-1, keepdim=True)
@@ -698,7 +697,7 @@ class Gemma4VocalCordSurgeon:
                 )
         else:
             inputs = processor_or_tokenizer(user_message, return_tensors="pt")
-        return {k: v.to(self.device) for k, v in inputs.items() if isinstance(v, torch.Tensor)}
+        return {k: v.to(self.surgeon_device if hasattr(self, "surgeon_device") else self.device) for k, v in inputs.items() if isinstance(v, torch.Tensor)}
 
     @staticmethod
     def _clean_reply_text(reply_text: str) -> str:
@@ -706,7 +705,7 @@ class Gemma4VocalCordSurgeon:
             reply_text = reply_text.split("<channel|>")[-1].strip()
         if "<|thought|>" in reply_text and "<|thought|>" in reply_text[11:]:
             reply_text = reply_text.split("<|thought|>")[-1].strip()
-        for tok_str in ("<end_of_turn>", "<eos>", "<|turn|>", "<turn|>", "<|turn>"):
+        for tok_str in ("<|channel>", "<channel|>", "<end_of_turn>", "<eos>", "<|turn|>", "<turn|>", "<|turn>"):
             reply_text = reply_text.replace(tok_str, "")
         return reply_text.strip()
 

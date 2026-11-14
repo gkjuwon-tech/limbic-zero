@@ -16,6 +16,6 @@ exec python3 /workspace/app/scripts/run_stage5_gemma4_vocal_cord.py \
   --host 0.0.0.0 \
   --port 8000 \
   --souls-dir /workspace/app/checkpoints/souls \
-  --subspace-cache /workspace/hf_cache/gemma4_12b_subspace_v3.pt \
+  --subspace-cache /workspace/hf_cache/gemma4_12b_subspace_v4.pt \
   --habitat-dir /workspace/habitat \
   --enable-cloudflare

@@ -67,7 +67,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="LIMBIC-0 × Gemma-4-12B-IT Vocal Cord Server")
     parser.add_argument("--model-id", type=str, default="google/gemma-4-12B-it")
     parser.add_argument("--souls-dir", type=str, default="checkpoints/souls")
-    parser.add_argument("--subspace-cache", type=str, default="checkpoints/souls/gemma4_12b_subspace_v3.pt")
+    parser.add_argument("--subspace-cache", type=str, default="checkpoints/souls/gemma4_12b_subspace_v4.pt")
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--public-url", type=str, default="")
