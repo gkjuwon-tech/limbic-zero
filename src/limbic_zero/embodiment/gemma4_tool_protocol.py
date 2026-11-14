@@ -558,6 +558,15 @@ class Gemma4IncrementalStreamParser:
                 break
 
             # state == "BODY"
+            # Guard against prompts ending on `<|channel>` where streamed tokens begin with `thought\n`
+            if not self.body_parts and not self.thought_Parts and not self.tool_calls:
+                if self._buf.startswith("thought\n"):
+                    self._buf = self._buf[len("thought\n") :]
+                    self.state = "THOUGHT"
+                    continue
+                if "thought\n".startswith(self._buf):
+                    break
+
             # Find earliest special transition, stray tag, or terminal token
             candidates: List[Tuple[int, str]] = []
             for tag in ("<|channel>thought", "<channel|>", "<|tool_call>", *_TERMINAL_TOKENS):

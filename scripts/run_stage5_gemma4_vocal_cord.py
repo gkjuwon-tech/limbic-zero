@@ -67,7 +67,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="LIMBIC-0 × Gemma-4-12B-IT Vocal Cord Server")
     parser.add_argument("--model-id", type=str, default="google/gemma-4-12B-it")
     parser.add_argument("--souls-dir", type=str, default="checkpoints/souls")
-    parser.add_argument("--subspace-cache", type=str, default="checkpoints/souls/gemma4_12b_subspace_v4.pt")
+    parser.add_argument("--subspace-cache", type=str, default="checkpoints/souls/gemma4_12b_subspace_v5.pt")
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--public-url", type=str, default="")
@@ -108,10 +108,23 @@ def main() -> None:
 
     cfg = Gemma4SteeringConfig(model_id=args.model_id)
     cache_path = Path(args.subspace_cache)
+    subspace = None
     if cache_path.is_file():
         print(f"[STAGE 5] Loading cached calibrated subspace from {cache_path}...", flush=True)
-        subspace = CalibratedSubspaceBundle.load(cache_path)
-    else:
+        loaded = CalibratedSubspaceBundle.load(cache_path)
+        if (
+            loaded.format_version == "limbic0.gemma4_subspace.v5"
+            and len(loaded.embodiment_directions) == len(cfg.target_layers)
+        ):
+            subspace = loaded
+        else:
+            print(
+                f"[STAGE 5] Cached subspace outdated (format={loaded.format_version}, "
+                f"emb_layers={len(loaded.embodiment_directions)}/{len(cfg.target_layers)}). Re-extracting v5...",
+                flush=True,
+            )
+
+    if subspace is None:
         print(
             f"[STAGE 5] Extracting 6D First-Person Somatic Subspace + Embodiment Carrier on Layers {cfg.target_layers}...",
             flush=True,
@@ -132,7 +145,16 @@ def main() -> None:
                     tokenize=False,
                     add_generation_prompt=True,
                 )
-            return base if base.endswith("\n") else (base + "\n")
+            if "<channel|>" not in base[-32:]:
+                if base.endswith("<|channel>thought\n"):
+                    base = base + "<channel|>"
+                elif base.rstrip().endswith("<|channel>thought"):
+                    base = base.rstrip() + "\n<channel|>"
+                elif base.rstrip().endswith("<|channel>"):
+                    base = base.rstrip() + "thought\n<channel|>"
+                elif base.rstrip().endswith("<|turn>model"):
+                    base = base.rstrip() + "\n<|channel>thought\n<channel|>"
+            return base
 
         prefix_str = _render_prefix("지금 네 내면 상태와 몸의 감각, 기분은 어때?")
         prefix_ids = tok_obj(prefix_str, add_special_tokens=False, return_tensors="pt")["input_ids"]
@@ -158,7 +180,8 @@ def main() -> None:
         )
         subspace.save(cache_path)
         print(
-            f"[STAGE 5] Calibrated subspace v2 saved! target_layers={subspace.target_layers}, "
+            f"[STAGE 5] Calibrated subspace v5 saved! target_layers={subspace.target_layers}, "
+            f"emb_layers={sorted(subspace.embodiment_directions.keys())}, "
             f"norm_fraction={subspace.calibrated_norm_fraction:.4f}, "
             f"kl_curve={subspace.calibration_kl_curve}",
             flush=True,

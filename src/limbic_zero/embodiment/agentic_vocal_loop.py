@@ -159,24 +159,32 @@ class EmbodiedAgenticRunner:
 
         starts_in_thought = False
         if hasattr(tok, "decode") and "input_ids" in dev_inputs:
-            tail_ids = dev_inputs["input_ids"][0][-12:]
+            tail_ids = dev_inputs["input_ids"][0][-16:]
             try:
                 tail_str = tok.decode(tail_ids, skip_special_tokens=False)
-                # In Gemma-4's `chat_template.jinja`, `prev_message_type == 'tool_response'` with
-                # `enable_thinking=False` ends directly on `<tool_response|>` without appending
-                # `<|channel>thought\n<channel|>`. Appending the empty thought-close anchor aligns
-                # the 1.00x prefill residual ramp directly onto the spoken-output boundary!
-                if (
-                    not enable_thinking
-                    and not tok.__class__.__name__.startswith("_Mock")
-                    and "<channel|>" not in tail_str
-                    and (
-                        tail_str.rstrip().endswith("<tool_response|>")
-                        or tail_str.rstrip().endswith("<|turn>model")
-                    )
-                ):
+                # In Gemma-4's `chat_template.jinja`, passing `tools=...` or `tool_response` turns
+                # can leave the prompt ending on `<|channel>`, `<|channel>thought\n`, `<tool_response|>`,
+                # or `<|turn>model` without `<channel|>`. Closing `<channel|>` when `enable_thinking=False`
+                # prevents `"thought\n"` leakage and anchors 1.00x prefill steering onto the first spoken token.
+                suffix_to_add = ""
+                if not tok.__class__.__name__.startswith("_Mock"):
+                    if not enable_thinking and "<channel|>" not in tail_str:
+                        if tail_str.endswith("<|channel>thought\n"):
+                            suffix_to_add = "<channel|>"
+                        elif tail_str.rstrip().endswith("<|channel>thought"):
+                            suffix_to_add = "\n<channel|>"
+                        elif tail_str.rstrip().endswith("<|channel>"):
+                            suffix_to_add = "thought\n<channel|>"
+                        elif tail_str.rstrip().endswith("<tool_response|>"):
+                            suffix_to_add = "<|channel>thought\n<channel|>"
+                        elif tail_str.rstrip().endswith("<|turn>model"):
+                            suffix_to_add = "\n<|channel>thought\n<channel|>"
+                    elif enable_thinking and tail_str.rstrip().endswith("<|channel>"):
+                        suffix_to_add = "thought\n"
+
+                if suffix_to_add:
                     anchor_enc = tok(
-                        "<|channel>thought\n<channel|>",
+                        suffix_to_add,
                         add_special_tokens=False,
                         return_tensors="pt",
                     )
@@ -201,9 +209,13 @@ class EmbodiedAgenticRunner:
                             dev_inputs["token_type_ids"] = torch.cat(
                                 [dev_inputs["token_type_ids"], zeros_tt], dim=-1
                             )
-                        tail_str = tok.decode(dev_inputs["input_ids"][0][-12:], skip_special_tokens=False)
+                        tail_str = tok.decode(dev_inputs["input_ids"][0][-16:], skip_special_tokens=False)
 
-                if tail_str.endswith("<|channel>thought\n") or tail_str.endswith("<|channel>thought"):
+                if (
+                    tail_str.endswith("<|channel>thought\n")
+                    or tail_str.endswith("<|channel>thought")
+                    or tail_str.rstrip().endswith("<|channel>")
+                ):
                     starts_in_thought = True
             except Exception:
                 pass

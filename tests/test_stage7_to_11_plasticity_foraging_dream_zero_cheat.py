@@ -1096,3 +1096,34 @@ def test_22_vocal_cord_surgeon_routes_soul_specific_plastic_weights_during_gener
         use_plastic_weights=True,
     )
     assert "reply" in out_base and "reply" in out_plast
+
+
+def test_24_subspace_v5_embodiment_directions_and_thought_leak_guard(tmp_path: Path) -> None:
+    """Verify v5 subspace persists embodiment_directions and stream parser prevents 'thought\\n' leak."""
+    from limbic_zero.embodiment.gemma4_tool_protocol import Gemma4IncrementalStreamParser
+    from limbic_zero.vocal_cord.gemma4_calibrator import CalibratedSubspaceBundle
+
+    torch.manual_seed(808)
+    model = _CompactCausalGemma4Model(vocab_size=512, hidden_size=96, num_layers=6)
+    proc = _ByteLevelTestProcessor()
+    cfg = Gemma4SteeringConfig(model_id="compact/gemma4", target_layers=(1, 3, 5), layer_weights=(0.3, 0.4, 0.3))
+    subspace = ContrastiveSubspaceExtractor(config=cfg).extract_and_calibrate(model, encode_fn=proc.encode_text)
+
+    save_p = tmp_path / "subspace_v5.pt"
+    subspace.save(save_p)
+    reloaded = CalibratedSubspaceBundle.load(save_p)
+    assert reloaded.format_version == "limbic0.gemma4_subspace.v5"
+    assert sorted(reloaded.embodiment_directions.keys()) == [1, 3, 5]
+
+    parser = Gemma4IncrementalStreamParser(starts_in_thought=False)
+    ev1 = parser.feed("tho")
+    assert ev1 == []
+    ev2 = parser.feed("ught\n내부 추론<channel|>지금 가슴이 턱 막힌다.<turn|>")
+    ev_end = parser.finish()
+    all_ev = ev1 + ev2 + ev_end
+    body_text = "".join(payload for kind, payload in all_ev if kind == "delta")
+    thought_text = "".join(payload for kind, payload in all_ev if kind == "thought_delta")
+    assert body_text == "지금 가슴이 턱 막힌다."
+    assert thought_text == "내부 추론"
+    assert "thought" not in body_text
+

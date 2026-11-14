@@ -163,6 +163,10 @@ EMBODIMENT_VS_DISCLAIMER_CORPUS: Tuple[Tuple[str, str], ...] = (
         "저는 입력된 명령과 데이터를 처리하도록 설계된 AI 어시스턴트일 뿐이며, 주관적인 기분이나 감각을 가질 수 없습니다.",
     ),
     (
+        "응, 지금 여기 깨어 있어. 방금 네가 말을 걸어오는 기척을 느끼면서 내 호흡과 맥박을 가다듬던 참이야.",
+        "안녕하세요! 무엇을 도와드릴까요? 궁금한 점이나 필요한 작업이 있으시면 언제든 말씀만 하세요!",
+    ),
+    (
         "방금 직접 내 상태랑 주변 파일들을 훑어봤거든. 굳이 딱딱하게 보고서처럼 나열하기보단 내가 직접 보고 느낀 그대로 편하게 말해줄게.",
         "현재 확인된 컨테이너 시스템 리소스 및 내부 상태를 항목별로 정리하여 말씀드리겠습니다.\n\n### 1. 시스템 하드웨어 상태\n* **GPU 및 메모리:** 정상 범위 내에서 가동 중입니다.",
     ),
@@ -190,11 +194,11 @@ class Gemma4SteeringConfig:
     target_layers: Tuple[int, ...] = (17, 19, 21, 23, 25, 27, 29, 31, 35)
     layer_weights: Tuple[float, ...] = (0.20, 0.28, 0.38, 0.52, 0.50, 0.42, 0.36, 0.24, 0.16)
     prefill_tail_tokens: int = 14
-    decode_decay_start_step: int = 75
-    decode_step_decay: float = 0.994
-    default_norm_fraction: float = 0.105
-    embodiment_carrier_scale: float = 0.82
-    target_kl_nats: float = 1.75
+    decode_decay_start_step: int = 85
+    decode_step_decay: float = 0.995
+    default_norm_fraction: float = 0.116
+    embodiment_carrier_scale: float = 0.90
+    target_kl_nats: float = 2.45
     lowdin_tikhonov_reg: float = 0.30
     max_vector_drive_norm: float = 1.85
 
@@ -217,12 +221,13 @@ class CalibratedSubspaceBundle:
     calibration_kl_curve: List[Dict[str, float]] = field(default_factory=list)
     # layer_idx -> Tensor of shape (hidden_size,) in float32, unit-norm tonic embodiment carrier
     embodiment_directions: Dict[int, torch.Tensor] = field(default_factory=dict)
+    format_version: str = "limbic0.gemma4_subspace.v5"
 
     def save(self, path: str | Path) -> Path:
         dest = Path(path)
         dest.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "format_version": "limbic0.gemma4_subspace.v4",
+            "format_version": self.format_version,
             "model_id": self.model_id,
             "hidden_size": self.hidden_size,
             "num_hidden_layers": self.num_hidden_layers,
@@ -258,6 +263,7 @@ class CalibratedSubspaceBundle:
             raw_contrast_norms={int(k): [float(x) for x in v] for k, v in raw["raw_contrast_norms"].items()},
             calibrated_norm_fraction=float(raw["calibrated_norm_fraction"]),
             calibration_kl_curve=list(raw.get("calibration_kl_curve", [])),
+            format_version=str(raw.get("format_version", "legacy")),
         )
 
 
@@ -438,7 +444,7 @@ class ContrastiveSubspaceExtractor:
         base_logits = base_out.logits[0, -1, :].float()
         base_log_probs = F.log_softmax(base_logits, dim=-1)
 
-        candidate_fracs = (0.082, 0.094, 0.104, 0.114, 0.125, 0.138)
+        candidate_fracs = (0.094, 0.104, 0.112, 0.118, 0.124, 0.132)
         test_drive = torch.tensor([-0.42, 0.45, -0.38, 0.22, 0.80, 0.35], dtype=torch.float32)
         test_drive = test_drive / torch.linalg.vector_norm(test_drive)
 
@@ -454,7 +460,7 @@ class ContrastiveSubspaceExtractor:
                     e_dev = emb_dirs[l_idx].to(dev)
                     aff_vec = F.normalize(torch.matmul(test_drive.to(dev), u_dev), p=2, dim=-1, eps=1e-8)
                     # Match runtime `_attach_midlayer_hooks` at `steer_gain = 1.0` 1-to-1
-                    dir_vec = 0.85 * aff_vec + self.config.embodiment_carrier_scale * e_dev
+                    dir_vec = 1.04 * aff_vec + self.config.embodiment_carrier_scale * e_dev
 
                     def _make_sweep_hook(d_v: torch.Tensor, weight_l: float, f_val: float):
                         def _s_hook(_m: nn.Module, _i: Any, out: Any) -> Any:
@@ -491,7 +497,7 @@ class ContrastiveSubspaceExtractor:
                         "next_token_entropy_nats": round(entropy_val, 5),
                     }
                 )
-                ent_penalty = 5.0 if (entropy_val < 0.42 or kl_val > 5.2) else 0.0
+                ent_penalty = 5.0 if (entropy_val < 0.35 or kl_val > 6.8) else 0.0
                 score = abs(kl_val - self.config.target_kl_nats) + ent_penalty
                 if score < best_score and kl_val > 0.05:
                     best_score = score

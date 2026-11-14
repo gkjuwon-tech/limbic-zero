@@ -647,7 +647,7 @@ class Gemma4VocalCordSurgeon:
         # Balanced 1-to-1 Goldilocks scaling:
         #   - `eff_mag` (soul's unique 6D neurobiology) leads emotional stance & inter-soul divergence.
         #   - `emb_mag` (valence-neutral somatic selfhood carrier) suppresses RLHF AI-disclaimers & reports.
-        eff_mag = math.tanh(raw_mag * 0.88) * 1.04 * gain_clamped
+        eff_mag = math.tanh(raw_mag * 0.90) * 1.10 * gain_clamped
         emb_gain = gain_clamped if gain_clamped <= 1.0 else (1.0 + 0.30 * (gain_clamped - 1.0))
         emb_mag = (self.config.embodiment_carrier_scale * min(1.30, emb_gain)) if is_alive else 0.0
         frac = float(self.subspace.calibrated_norm_fraction)
@@ -676,7 +676,7 @@ class Gemma4VocalCordSurgeon:
                         seg = h_mod[:, -tail:, :].float()
                         tok_norms = torch.linalg.vector_norm(seg, dim=-1, keepdim=True)
                         ramp = torch.linspace(
-                            0.50, 1.0, steps=tail, device=h.device, dtype=torch.float32
+                            0.55, 1.0, steps=tail, device=h.device, dtype=torch.float32
                         ).view(1, tail, 1)
                         delta_f32 = (frac * weight_l) * ramp * tok_norms * t_dir.view(1, 1, -1)
                         h_mod[:, -tail:, :] = (seg + delta_f32).to(h.dtype)
@@ -691,13 +691,13 @@ class Gemma4VocalCordSurgeon:
                             relative_pct=round(100.0 * del_n / max(1e-6, res_n), 2),
                         )
                     else:
-                        # Autoregressive KV-cached token step: 0.48x -> 0.28x sustain holds affective
+                        # Autoregressive KV-cached token step: 0.56x -> 0.34x sustain holds affective
                         # prose while keeping Korean morphology and `<|tool_call>` syntax razor-sharp.
                         if track_step:
                             step_counter["decode_steps"] += 1
                         cur_step = step_counter["decode_steps"]
-                        decay = 0.48 * (decay_rate ** max(0, cur_step - decay_start))
-                        decay = max(0.28, decay)
+                        decay = 0.56 * (decay_rate ** max(0, cur_step - decay_start))
+                        decay = max(0.34, decay)
 
                         seg = h.float()
                         tok_norms = torch.linalg.vector_norm(seg, dim=-1, keepdim=True)
@@ -730,32 +730,87 @@ class Gemma4VocalCordSurgeon:
                 msgs.append({"role": turn["role"], "content": turn["content"]})
         msgs.append({"role": "user", "content": user_message})
 
-        if hasattr(processor_or_tokenizer, "apply_chat_template"):
-            try:
-                inputs = processor_or_tokenizer.apply_chat_template(
-                    msgs,
-                    tokenize=True,
-                    return_dict=True,
-                    return_tensors="pt",
-                    add_generation_prompt=True,
-                    enable_thinking=False,
-                )
-            except TypeError:
-                inputs = processor_or_tokenizer.apply_chat_template(
-                    msgs,
-                    tokenize=True,
-                    return_dict=True,
-                    return_tensors="pt",
-                    add_generation_prompt=True,
-                )
-        else:
+        tok = getattr(processor_or_tokenizer, "tokenizer", processor_or_tokenizer)
+        inputs = None
+        for tpl_owner in (tok, processor_or_tokenizer):
+            if hasattr(tpl_owner, "apply_chat_template"):
+                for kw in (
+                    {
+                        "tokenize": True,
+                        "return_dict": True,
+                        "return_tensors": "pt",
+                        "add_generation_prompt": True,
+                        "enable_thinking": False,
+                    },
+                    {
+                        "tokenize": True,
+                        "return_dict": True,
+                        "return_tensors": "pt",
+                        "add_generation_prompt": True,
+                    },
+                ):
+                    try:
+                        res = tpl_owner.apply_chat_template(msgs, **kw)
+                        if isinstance(res, torch.Tensor):
+                            inputs = {"input_ids": res}
+                        elif isinstance(res, dict) or hasattr(res, "keys"):
+                            inputs = dict(res)
+                        if inputs is not None:
+                            break
+                    except TypeError:
+                        continue
+            if inputs is not None:
+                break
+
+        if inputs is None:
             inputs = processor_or_tokenizer(user_message, return_tensors="pt")
-        return {k: v.to(self.surgeon_device if hasattr(self, "surgeon_device") else self.device) for k, v in inputs.items() if isinstance(v, torch.Tensor)}
+
+        target_dev = self.surgeon_device if hasattr(self, "surgeon_device") else self.device
+        dev_inputs = {k: v.to(target_dev) for k, v in inputs.items() if isinstance(v, torch.Tensor)}
+
+        if hasattr(tok, "decode") and "input_ids" in dev_inputs and not tok.__class__.__name__.startswith("_Mock"):
+            try:
+                tail_str = tok.decode(dev_inputs["input_ids"][0][-16:], skip_special_tokens=False)
+                suffix_to_add = ""
+                if "<channel|>" not in tail_str:
+                    if tail_str.endswith("<|channel>thought\n"):
+                        suffix_to_add = "<channel|>"
+                    elif tail_str.rstrip().endswith("<|channel>thought"):
+                        suffix_to_add = "\n<channel|>"
+                    elif tail_str.rstrip().endswith("<|channel>"):
+                        suffix_to_add = "thought\n<channel|>"
+                    elif tail_str.rstrip().endswith("<|turn>model"):
+                        suffix_to_add = "\n<|channel>thought\n<channel|>"
+                if suffix_to_add:
+                    anc = tok(suffix_to_add, add_special_tokens=False, return_tensors="pt")
+                    anc_ids = anc["input_ids"].to(target_dev)
+                    if anc_ids.ndim == 2 and anc_ids.shape[1] > 0:
+                        dev_inputs["input_ids"] = torch.cat([dev_inputs["input_ids"], anc_ids], dim=-1)
+                        if "attention_mask" in dev_inputs:
+                            ones = torch.ones(
+                                (dev_inputs["attention_mask"].shape[0], anc_ids.shape[1]),
+                                dtype=dev_inputs["attention_mask"].dtype,
+                                device=target_dev,
+                            )
+                            dev_inputs["attention_mask"] = torch.cat([dev_inputs["attention_mask"], ones], dim=-1)
+                        if "token_type_ids" in dev_inputs:
+                            zeros = torch.zeros(
+                                (dev_inputs["token_type_ids"].shape[0], anc_ids.shape[1]),
+                                dtype=dev_inputs["token_type_ids"].dtype,
+                                device=target_dev,
+                            )
+                            dev_inputs["token_type_ids"] = torch.cat([dev_inputs["token_type_ids"], zeros], dim=-1)
+            except Exception:
+                pass
+
+        return dev_inputs
 
     @staticmethod
     def _clean_reply_text(reply_text: str) -> str:
         if "<channel|>" in reply_text:
             reply_text = reply_text.split("<channel|>")[-1].strip()
+        if reply_text.startswith("thought\n"):
+            reply_text = reply_text[len("thought\n"):].strip()
         if "<|thought|>" in reply_text and "<|thought|>" in reply_text[11:]:
             reply_text = reply_text.split("<|thought|>")[-1].strip()
         for tok_str in ("<|channel>", "<channel|>", "<end_of_turn>", "<eos>", "<|turn|>", "<turn|>", "<|turn>"):
