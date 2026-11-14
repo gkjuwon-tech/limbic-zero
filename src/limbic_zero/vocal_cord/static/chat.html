@@ -826,7 +826,11 @@
           if (evt.type === "meta" && onMeta) onMeta(evt);
           else if (evt.type === "injections" && onInjections) onInjections(evt.layer_injections || []);
           else if (evt.type === "delta" && onDelta) onDelta(evt.delta || "");
-          else if (evt.type === "done" && onDone) onDone(evt);
+          else if (evt.type === "done") {
+            if (onDone) onDone(evt);
+            try { await reader.cancel(); } catch (_) {}
+            return;
+          }
         }
       }
     }
