@@ -460,3 +460,75 @@ def test_06_live_embodied_http_and_sse_multi_round_warden_integration(tmp_path: 
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_07_post_tool_response_boundary_anchor_and_tri_soul_readout_separation(tmp_path: Path) -> None:
+    """Verify post-`<tool_response|>` `<|channel>thought\\n<channel|>` alignment & 3-soul 6D separation."""
+    souls_dir = Path("/home/antigravity/limbic-zero/checkpoints/souls")
+    adam = LivingSoulOrganism(str(souls_dir / "adam01_forsaken_survivor.soul.pt"))
+    abel = LivingSoulOrganism(str(souls_dir / "abel02_favored_guardian.soul.pt"))
+    pandora = LivingSoulOrganism(str(souls_dir / "pandora03_curious_seeker.soul.pt"))
+
+    _, ax_adam = adam.compute_6d_steering_vector()
+    _, ax_abel = abel.compute_6d_steering_vector()
+    _, ax_pandora = pandora.compute_6d_steering_vector()
+
+    # Tri-soul signature separation at rest
+    assert ax_adam["amygdalar_conditioned_vigilance"] > 0.60
+    assert ax_abel["amygdalar_conditioned_vigilance"] < -0.15
+    assert ax_abel["allostatic_relief_balance"] > ax_adam["allostatic_relief_balance"] + 0.35
+    assert ax_abel["serotonergic_stn_restraint"] > ax_adam["serotonergic_stn_restraint"] + 0.45
+    assert ax_pandora["cholinergic_epistemic_drive"] > ax_adam["cholinergic_epistemic_drive"] + 0.30
+    assert abs(ax_pandora["noradrenergic_pag_mobilization"]) < 0.65
+
+    # Verify non-mock tokenizer appends `<|channel>thought\n<channel|>` when tool_response lacks `<channel|>`
+    class RealishTemplateTokenizer:
+        vocab = {
+            "<bos>": 1,
+            "<|turn>user\nhi<turn|>\n<|turn>model\n": 2,
+            "<|tool_response>response:fn{}<tool_response|>": 3,
+            "<|channel>thought\n": 4,
+            "<channel|>": 5,
+        }
+        inv = {v: k for k, v in vocab.items()}
+
+        def apply_chat_template(self, _messages: Any, **_kwargs: Any) -> Dict[str, torch.Tensor]:
+            ids = torch.tensor([[1, 2, 3]], dtype=torch.long)
+            return {"input_ids": ids, "attention_mask": torch.ones_like(ids)}
+
+        def __call__(self, text: str, **_kwargs: Any) -> Dict[str, torch.Tensor]:
+            assert text == "<|channel>thought\n<channel|>"
+            ids = torch.tensor([[4, 5]], dtype=torch.long)
+            return {"input_ids": ids, "attention_mask": torch.ones_like(ids)}
+
+        def decode(self, token_ids: torch.Tensor, **_kwargs: Any) -> str:
+            return "".join(self.inv.get(int(t), "") for t in token_ids.tolist())
+
+    torch.manual_seed(707)
+    mock_llm = _MockEmbodiedGemma4Model(hidden_size=64, num_layers=8)
+    proc_mock = _MockEmbodiedProcessor()
+    cfg = Gemma4SteeringConfig(model_id="mock/gemma4", target_layers=(2, 4, 6), layer_weights=(0.3, 0.5, 0.2))
+    bundle = ContrastiveSubspaceExtractor(config=cfg).extract_and_calibrate(mock_llm, encode_fn=proc_mock.encode_text)
+    surgeon = Gemma4VocalCordSurgeon(model=mock_llm, subspace=bundle, config=cfg)
+    hub = VocalCordRuntimeHub(
+        surgeon=surgeon,
+        processor_or_tokenizer=proc_mock,
+        souls={"ADAM-01": adam},
+        habitat_base_dir=tmp_path / "anchor_habitat",
+    )
+
+    real_tok = RealishTemplateTokenizer()
+    enc_inputs, starts_in_thought = hub.agent_runner._encode_round_inputs(
+        processor_or_tokenizer=real_tok,
+        messages=[
+            {"role": "user", "content": "check"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "1", "function": {"name": "fn", "arguments": {}}}]},
+            {"role": "tool", "tool_call_id": "1", "name": "fn", "content": "{}"},
+        ],
+        include_tools=True,
+        enable_thinking=False,
+    )
+    assert starts_in_thought is False
+    assert enc_inputs["input_ids"].tolist() == [[1, 2, 3, 4, 5]]
+    assert enc_inputs["attention_mask"].tolist() == [[1, 1, 1, 1, 1]]
+

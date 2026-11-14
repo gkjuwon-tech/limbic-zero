@@ -1138,6 +1138,10 @@
                     <span id="agent-dot" class="switch-pip sage"></span>
                     <span id="agent-label">Embodied Tools ON</span>
                   </button>
+                  <button id="cot-toggle" type="button" class="inline-switch" onclick="toggleThinking()" title="Gemma 4 내부 사고 체인(<|channel>thought) 기록 ON/OFF (기본 OFF: 즉각 발화·잔차 희석 방지)">
+                    <span id="cot-dot" class="switch-pip off"></span>
+                    <span id="cot-label">CoT OFF</span>
+                  </button>
                   <label class="gain-ctrl" for="gain-range">
                     <span>Gain</span>
                     <input id="gain-range" type="range" min="0" max="200" value="100" oninput="updateGainLabel()" />
@@ -1294,6 +1298,7 @@
     let activeSoul = "ADAM-01";
     let steerEnabled = true;
     let agentModeEnabled = true;
+    let thinkingEnabled = false;
     let steerGain = 1.0;
     let soulsCache = {};
     let busy = false;
@@ -1351,6 +1356,13 @@
       dot.classList.toggle("off", !agentModeEnabled);
       dot.classList.toggle("sage", agentModeEnabled);
       document.getElementById("agent-label").textContent = agentModeEnabled ? "Embodied Tools ON" : "Embodied Tools OFF";
+    }
+
+    function toggleThinking() {
+      thinkingEnabled = !thinkingEnabled;
+      const dot = document.getElementById("cot-dot");
+      dot.classList.toggle("off", !thinkingEnabled);
+      document.getElementById("cot-label").textContent = thinkingEnabled ? "CoT ON" : "CoT OFF";
     }
 
     function updateGainLabel() {
@@ -1693,7 +1705,7 @@
             steer_enabled: steerEnabled,
             steer_gain: steerGain,
             agent_mode: agentModeEnabled,
-            enable_thinking: agentModeEnabled,
+            enable_thinking: thinkingEnabled,
             max_new_tokens: maxNewTokens
           },
           {
@@ -1862,7 +1874,7 @@
               steer_enabled: s.steer,
               steer_gain: s.steer ? steerGain : 0.0,
               agent_mode: agentModeEnabled,
-              enable_thinking: agentModeEnabled,
+              enable_thinking: thinkingEnabled,
               max_new_tokens: 768,
               stimulate_soma: s.steer,
               use_history: false

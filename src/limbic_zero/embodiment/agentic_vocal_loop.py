@@ -159,9 +159,50 @@ class EmbodiedAgenticRunner:
 
         starts_in_thought = False
         if hasattr(tok, "decode") and "input_ids" in dev_inputs:
-            tail_ids = dev_inputs["input_ids"][0][-8:]
+            tail_ids = dev_inputs["input_ids"][0][-12:]
             try:
                 tail_str = tok.decode(tail_ids, skip_special_tokens=False)
+                # In Gemma-4's `chat_template.jinja`, `prev_message_type == 'tool_response'` with
+                # `enable_thinking=False` ends directly on `<tool_response|>` without appending
+                # `<|channel>thought\n<channel|>`. Appending the empty thought-close anchor aligns
+                # the 1.00x prefill residual ramp directly onto the spoken-output boundary!
+                if (
+                    not enable_thinking
+                    and not tok.__class__.__name__.startswith("_Mock")
+                    and "<channel|>" not in tail_str
+                    and (
+                        tail_str.rstrip().endswith("<tool_response|>")
+                        or tail_str.rstrip().endswith("<|turn>model")
+                    )
+                ):
+                    anchor_enc = tok(
+                        "<|channel>thought\n<channel|>",
+                        add_special_tokens=False,
+                        return_tensors="pt",
+                    )
+                    anchor_ids = anchor_enc["input_ids"].to(self.surgeon.device)
+                    if anchor_ids.ndim == 2 and anchor_ids.shape[1] > 0:
+                        dev_inputs["input_ids"] = torch.cat([dev_inputs["input_ids"], anchor_ids], dim=-1)
+                        if "attention_mask" in dev_inputs:
+                            ones_mask = torch.ones(
+                                (dev_inputs["attention_mask"].shape[0], anchor_ids.shape[1]),
+                                dtype=dev_inputs["attention_mask"].dtype,
+                                device=self.surgeon.device,
+                            )
+                            dev_inputs["attention_mask"] = torch.cat(
+                                [dev_inputs["attention_mask"], ones_mask], dim=-1
+                            )
+                        if "token_type_ids" in dev_inputs:
+                            zeros_tt = torch.zeros(
+                                (dev_inputs["token_type_ids"].shape[0], anchor_ids.shape[1]),
+                                dtype=dev_inputs["token_type_ids"].dtype,
+                                device=self.surgeon.device,
+                            )
+                            dev_inputs["token_type_ids"] = torch.cat(
+                                [dev_inputs["token_type_ids"], zeros_tt], dim=-1
+                            )
+                        tail_str = tok.decode(dev_inputs["input_ids"][0][-12:], skip_special_tokens=False)
+
                 if tail_str.endswith("<|channel>thought\n") or tail_str.endswith("<|channel>thought"):
                     starts_in_thought = True
             except Exception:
@@ -177,7 +218,7 @@ class EmbodiedAgenticRunner:
         steer_enabled: bool = True,
         steer_gain: float = 1.0,
         agent_mode: bool = True,
-        enable_thinking: bool = True,
+        enable_thinking: bool = False,
         max_new_tokens: int = 1024,
         max_tool_rounds: int = 4,
         temperature: float = 0.70,
@@ -510,7 +551,7 @@ class EmbodiedAgenticRunner:
         steer_enabled: bool = True,
         steer_gain: float = 1.0,
         agent_mode: bool = True,
-        enable_thinking: bool = True,
+        enable_thinking: bool = False,
         max_new_tokens: int = 1024,
         max_tool_rounds: int = 4,
         temperature: float = 0.70,

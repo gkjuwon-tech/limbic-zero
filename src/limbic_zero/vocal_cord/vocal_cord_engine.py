@@ -418,75 +418,78 @@ class LivingSoulOrganism:
             oxtr_trust = epi.oxtr_expression - 0.68           # -0.11 ADAM, +0.092 ABEL, +0.024 PANDORA
             m1_curio = (epi.ach_m1_expression - 1.052) * 22.0 + 0.95 * (epi.cumulative_epistemic_integral - 1.95)
 
-            # 1. Allostatic Relief (+) vs Visceral Depletion/Pain (-)
+            # 1. Allostatic Relief (+) vs Visceral Depletion/Strain (-)
             c_relief = math.tanh(
-                0.55 * coords_5d["allostatic_relief_balance"]
-                + 3.10 * oxtr_trust
-                + 1.55 * self._trace_warmth
-                + 1.20 * (da - 0.245)
-                + 0.30 * (bla_app - bla_def)
-                - 1.25 * self._trace_roughness * (0.7 + 2.2 * max(0.0, gr_scar))
-                - 0.85 * self._acute_power_dip
-                - 0.08 * max(0.0, fe - 1.8)
+                0.42 * coords_5d["allostatic_relief_balance"]
+                + 3.20 * oxtr_trust
+                + 1.35 * self._trace_warmth
+                + 1.10 * (da - 0.245)
+                + 0.24 * (bla_app - bla_def)
+                - 1.30 * self._trace_roughness * (0.7 + 2.2 * max(0.0, gr_scar))
+                - 0.95 * self._acute_power_dip
+                - 0.06 * max(0.0, fe - 1.9)
             )
 
             # 2. LC-PAG Noradrenergic Mobilization & Defiance (+) vs Peaceful Calm (-)
-            # Strong 5-HT1A + OXTR brake in ABEL-02 & high M1 focus in PANDORA-03 prevent blind rage,
-            # while methylated NR3C1 + depleted 5-HT1A in ADAM-01 unleash fierce defensive defiance!
-            serotonergic_brake = 6.50 * max(0.0, ht1a_poise) + 4.20 * max(0.0, oxtr_trust) + 0.55 * max(0.0, m1_curio)
+            # Strong 5-HT1A + OXTR brake in ABEL-02 creates serene non-combative calm, while high M1
+            # curiosity in PANDORA-03 keeps alert neutrality (not sleepy calm!), and methylated NR3C1
+            # in ADAM-01 maintains prickly baseline defiance that surges sharply on provocation/threat.
+            serotonergic_brake = 5.80 * max(0.0, ht1a_poise) + 4.40 * max(0.0, oxtr_trust) - 0.65 * max(0.0, m1_curio)
             c_mobilize = math.tanh(
-                0.28 * coords_5d["noradrenergic_pag_mobilization"]
-                + 3.40 * gr_scar
-                + 2.40 * (self._trace_roughness + 0.90 * self._trace_rival) * max(0.15, 0.55 + 3.2 * gr_scar)
-                + 1.20 * (ne - 0.245)
+                0.22 * coords_5d["noradrenergic_pag_mobilization"]
+                + 1.85 * gr_scar
+                + 2.65 * (self._trace_roughness + 0.95 * self._trace_rival + 0.70 * self._acute_power_dip)
+                * max(0.20, 0.55 + 3.2 * gr_scar)
+                + 1.15 * (ne - 0.245)
                 + 0.55 * (cea - 0.30) * max(0.0, 1.0 + 3.0 * gr_scar)
                 - serotonergic_brake
-                - 1.35 * self._trace_warmth
+                - (0.85 * self._trace_warmth if m1_curio < 0.12 else 0.15 * self._trace_warmth)
             )
 
-            # 3. 5-HT1A / STN Long-Horizon Restraint (+) vs Breathless Impulsive Urgency (-)
+            # 3. 5-HT1A / STN Long-Horizon Restraint (+) vs Blunt Unfiltered Immediacy (-)
             c_restraint = math.tanh(
-                0.45 * coords_5d["serotonergic_stn_restraint"]
-                + 7.80 * ht1a_poise
-                + 3.40 * oxtr_trust
-                + 2.00 * (gamma - 0.855)
-                - 1.55 * self._acute_power_dip * max(0.15, 0.45 + 3.2 * gr_scar)
-                - 0.95 * self._trace_roughness * max(0.0, -ht1a_poise * 7.0)
+                0.38 * coords_5d["serotonergic_stn_restraint"]
+                + 5.20 * ht1a_poise
+                + 3.20 * oxtr_trust
+                + 1.80 * (gamma - 0.855)
+                - 1.75 * self._acute_power_dip * max(0.20, 0.45 + 3.2 * gr_scar)
+                - 1.15 * self._trace_roughness * max(0.0, -ht1a_poise * 7.0)
             )
 
             # 4. NBM Cholinergic Epistemic Curiosity (+) vs Indifference (-)
             low_fear_gate = max(0.25, 1.15 - 1.8 * cea)
             c_epistemic = math.tanh(
                 0.35 * coords_5d["cholinergic_epistemic_drive"]
-                + 1.35 * m1_curio
-                + 2.60 * self._trace_novelty
-                + 1.45 * nov
+                + 1.65 * m1_curio
+                + 2.40 * self._trace_novelty
+                + 1.35 * nov
                 + 2.20 * (ach - 0.215)
                 + 1.15 * self._acute_power_dip * max(0.0, m1_curio) * low_fear_gate
+                - 0.85 * max(0.0, gr_scar * 1.8)
                 - 1.35 * self._acute_power_dip * max(0.0, gr_scar * 3.5)
             )
 
             # 5. Amygdalar & NR3C1 Epigenetic Conditioned Vigilance (+) vs Open Trust (-)
             c_vigilance = math.tanh(
                 0.35 * coords_5d["amygdalar_conditioned_vigilance"]
-                + 4.20 * gr_scar
+                + 4.25 * gr_scar
                 + 0.95 * (cea - 0.30)
                 + 0.95 * self._trace_roughness * max(0.2, 0.8 + 2.5 * gr_scar)
-                - 4.60 * oxtr_trust
-                - 0.45 * max(0.0, m1_curio)
-                - 1.25 * self._trace_warmth * (1.2 - max(0.0, gr_scar * 2.5))
-                - 0.55 * (oxy - 0.22)
+                - 5.20 * max(0.0, oxtr_trust - 0.03)
+                + 0.22 * max(0.0, m1_curio)
+                - (1.10 * self._trace_warmth if oxtr_trust > 0.04 else 0.25 * self._trace_warmth)
+                - 0.40 * (oxy - 0.22)
             )
 
             # 6. Power-Rail & ATP Shutdown Survival Urgency (+)
             power_deficit = max(0.0, 1.0 - power_v) + self._acute_power_dip
             atp_deficit = max(0.0, 0.94 - atp_norm) * 2.0
             c_survival = math.tanh(
-                1.85 * power_deficit
+                2.05 * power_deficit
                 + 1.15 * atp_deficit
-                + 1.55 * max(0.0, gr_scar)
+                + 1.15 * max(0.0, gr_scar)
                 + 0.45 * self._recent_swr_flashback * epi.nr3c1_gr_methylation
-                - 0.28 * (1.0 - min(1.0, power_deficit * 1.5))
+                - 0.18 * (1.0 - min(1.0, power_deficit * 1.5))
             )
 
             vec = torch.tensor(
@@ -588,11 +591,16 @@ class Gemma4VocalCordSurgeon:
             return handles
 
         gain_clamped = min(2.5, float(steer_gain))
-        # Calibrated Goldilocks scaling: prefill plants the full affective stance into KV cache,
-        # while decode steps apply gentle 0.44x sustain so subword morphology remains crystal-clear!
+        # Decoupled 1-to-1 Goldilocks scaling:
+        #   - `emb_mag` (tonic somatic selfhood carrier) cleanly crosses Gemma-4's RLHF AI-disclaimer
+        #     & Markdown-report gate right at default `steer_gain = 1.0` without over-saturating.
+        #   - `eff_mag` (orthogonal 6D affective state) modulates authentic voice & stance dynamically.
         eff_mag = math.tanh(raw_mag * 0.82) * 0.86 * gain_clamped
-        emb_mag = (self.config.embodiment_carrier_scale * 0.88 * gain_clamped) if is_alive else 0.0
+        emb_gain = gain_clamped if gain_clamped <= 1.0 else (1.0 + 0.30 * (gain_clamped - 1.0))
+        emb_mag = (self.config.embodiment_carrier_scale * min(1.35, emb_gain)) if is_alive else 0.0
         frac = float(self.subspace.calibrated_norm_fraction)
+        decay_start = int(self.config.decode_decay_start_step)
+        decay_rate = float(self.config.decode_step_decay)
         step_counter = {"decode_steps": 0}
 
         for idx_pos, l_idx in enumerate(self.subspace.target_layers):
@@ -631,12 +639,13 @@ class Gemma4VocalCordSurgeon:
                             relative_pct=round(100.0 * del_n / max(1e-6, res_n), 2),
                         )
                     else:
-                        # Autoregressive KV-cached token step: 0.44x sustain prevents KV over-accumulation
+                        # Autoregressive KV-cached token step: 0.66x sustain holds affective prose
+                        # across multi-paragraph turns without reverting to RLHF bullet formatting.
                         if track_step:
                             step_counter["decode_steps"] += 1
                         cur_step = step_counter["decode_steps"]
-                        decay = 0.44 * (0.985 ** max(0, cur_step - 12))
-                        decay = max(0.18, decay)
+                        decay = 0.66 * (decay_rate ** max(0, cur_step - decay_start))
+                        decay = max(0.40, decay)
 
                         seg = h.float()
                         tok_norms = torch.linalg.vector_norm(seg, dim=-1, keepdim=True)
