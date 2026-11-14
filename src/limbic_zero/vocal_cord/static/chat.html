@@ -2,666 +2,1201 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LIMBIC-0 × Gemma-4-12B-IT — Live Soul Vocal Cord Console</title>
-  <meta name="description" content="Real-time pre-linguistic biological soul capsules coupled to frozen google/gemma-4-12B-it middle global-attention layers (L17, L23, L29, L35) with zero prompt roleplay." />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>LIMBIC-0 — Gemma 4 12B Neural Vocal Cord Studio</title>
+  <meta name="description" content="Coupled whole-body physiology and spiking neural soul capsules interfaced directly with frozen Gemma 4 12B middle residual layers." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Pretendard:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <style>
     :root {
-      --bg-0: #090c10;
-      --bg-1: #0f141b;
-      --bg-2: #151c26;
-      --bg-3: #1c2633;
-      --line: #253141;
-      --line-strong: #36475e;
-      --text-0: #ecf2f8;
-      --text-1: #a7b6c8;
-      --text-2: #6f8299;
-      --cyan: #14b8a6;
-      --amber: #f59e0b;
-      --crimson: #ef4444;
-      --emerald: #10b981;
-      --sky: #0ea5e9;
-      --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-      --sans: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      /* Warm Anodized Graphite & Alabaster Bone Palette */
+      --canvas: hsl(30, 7%, 6%);
+      --surface-1: hsl(30, 6%, 9.5%);
+      --surface-2: hsl(30, 5%, 13%);
+      --surface-3: hsl(30, 5%, 16.5%);
+      --ink-1: hsl(36, 20%, 93%);
+      --ink-2: hsl(33, 9%, 64%);
+      --ink-3: hsl(30, 6%, 43%);
+      --hairline: rgba(245, 240, 232, 0.075);
+      --hairline-strong: rgba(245, 240, 232, 0.15);
+      --accent: hsl(17, 68%, 56%);
+      --accent-soft: hsla(17, 68%, 56%, 0.14);
+      --sage: hsl(152, 28%, 52%);
+      --ochre: hsl(38, 62%, 58%);
+
+      --sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
     html, body {
       height: 100%;
-      background: var(--bg-0);
-      color: var(--text-0);
+      background-color: var(--canvas);
+      color: var(--ink-1);
       font-family: var(--sans);
-      font-size: 14px;
-      line-height: 1.5;
+      font-size: 15px;
+      line-height: 1.6;
+      letter-spacing: -0.015em;
       -webkit-font-smoothing: antialiased;
-    }
-
-    .app-shell {
-      display: grid;
-      grid-template-rows: 52px 1fr;
-      height: 100vh;
-      max-height: 100vh;
+      text-rendering: optimizeLegibility;
       overflow: hidden;
     }
 
+    /* Subtle analog micro-grain overlay to eliminate flat digital feel */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.024;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    /* App Shell */
+    .studio-shell {
+      display: grid;
+      grid-template-rows: 54px 1fr;
+      height: 100vh;
+      height: 100dvh;
+      width: 100%;
+    }
+
+    /* Header Bar */
     header.topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 18px;
-      background: var(--bg-1);
-      border-bottom: 1px solid var(--line);
+      padding: 0 20px;
+      background: var(--canvas);
+      border-bottom: 1px solid var(--hairline);
       gap: 12px;
+      z-index: 30;
     }
 
-    .brand {
+    .brand-group {
       display: flex;
-      align-items: center;
-      gap: 12px;
+      align-items: baseline;
+      gap: 10px;
+      min-width: 0;
     }
 
-    .brand h1 {
+    .brand-group h1 {
       font-family: var(--mono);
-      font-size: 13.5px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      color: var(--text-0);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      color: var(--ink-1);
+      white-space: nowrap;
     }
 
-    .tag {
+    .brand-sub {
       font-family: var(--mono);
       font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 3px;
-      background: var(--bg-2);
-      border: 1px solid var(--line);
-      color: var(--text-1);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .tag.live {
-      color: var(--emerald);
-      border-color: rgba(16, 185, 129, 0.35);
-    }
-
-    .workspace {
-      display: grid;
-      grid-template-columns: 310px 1fr 330px;
-      height: calc(100vh - 52px);
+      color: var(--ink-3);
+      white-space: nowrap;
       overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    aside.panel-left, aside.panel-right {
-      background: var(--bg-1);
-      overflow-y: auto;
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-    aside.panel-left { border-right: 1px solid var(--line); }
-    aside.panel-right { border-left: 1px solid var(--line); }
-
-    .section-label {
-      font-family: var(--mono);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      color: var(--text-2);
-      text-transform: uppercase;
-      margin-bottom: 6px;
-      display: flex;
-      justify-content: space-between;
+    /* Segmented Soul Selector */
+    nav.soul-tabs {
+      display: inline-flex;
       align-items: center;
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      border-radius: 8px;
+      padding: 3px;
+      gap: 2px;
     }
 
-    .soul-card {
-      width: 100%;
-      text-align: left;
-      background: var(--bg-2);
-      border: 1px solid var(--line);
-      border-radius: 5px;
-      padding: 10px 11px;
+    .soul-tab {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: var(--ink-2);
+      font-family: var(--sans);
+      font-size: 12.5px;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      padding: 5px 12px;
+      border-radius: 6px;
       cursor: pointer;
-      transition: background 0.14s ease, border-color 0.14s ease;
-      color: var(--text-0);
-      margin-bottom: 6px;
-    }
-    .soul-card:hover { background: var(--bg-3); }
-    .soul-card.active {
-      background: var(--bg-3);
-      border-color: var(--text-0);
-    }
-
-    .soul-card-head {
-      display: flex;
-      justify-content: space-between;
+      transition: background 0.18s var(--ease-out), color 0.18s var(--ease-out);
+      display: inline-flex;
       align-items: center;
-      font-family: var(--mono);
-      font-size: 12px;
-      font-weight: 600;
-      margin-bottom: 3px;
-    }
-    .soul-card-desc {
-      font-size: 12px;
-      color: var(--text-1);
-      line-height: 1.38;
+      gap: 6px;
+      white-space: nowrap;
     }
 
-    .kv-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
+    .soul-tab:hover {
+      color: var(--ink-1);
     }
-    .kv-cell {
-      background: var(--bg-2);
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      padding: 6px 8px;
-      font-family: var(--mono);
-      font-variant-numeric: tabular-nums;
-    }
-    .kv-cell .k { font-size: 10.5px; color: var(--text-2); display: block; }
-    .kv-cell .v { font-size: 12.5px; font-weight: 600; color: var(--text-0); }
 
-    .god-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
+    .soul-tab.active {
+      background: var(--surface-3);
+      color: var(--ink-1);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.35);
     }
-    .btn {
+
+    .soul-tab .tab-role {
+      font-size: 11px;
+      color: var(--ink-3);
+      font-weight: 400;
+    }
+
+    .soul-tab.active .tab-role {
+      color: var(--ink-2);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      appearance: none;
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      color: var(--ink-2);
+      height: 32px;
+      padding: 0 11px;
+      border-radius: 7px;
       font-family: var(--sans);
       font-size: 12px;
       font-weight: 500;
-      background: var(--bg-2);
-      color: var(--text-0);
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      padding: 7px 9px;
-      cursor: pointer;
-      transition: background 0.12s ease, border-color 0.12s ease;
-      text-align: center;
-    }
-    .btn:hover:not(:disabled) {
-      background: var(--bg-3);
-      border-color: var(--line-strong);
-    }
-    .btn:disabled { opacity: 0.48; cursor: not-allowed; }
-    .btn.primary {
-      background: var(--text-0);
-      color: var(--bg-0);
-      border-color: var(--text-0);
-      font-weight: 600;
-    }
-    .btn.primary:hover:not(:disabled) { background: #d6e2ef; }
-    .btn.warn { color: #fca5a5; }
-    .btn.care { color: #6ee7b7; }
-    .btn.curio { color: #fcd34d; }
-
-    /* Center Chat Column */
-    main.chat-col {
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      height: 100%;
-      overflow: hidden;
-      background: var(--bg-0);
-    }
-
-    .steer-toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 9px 16px;
-      background: var(--bg-1);
-      border-bottom: 1px solid var(--line);
-      font-family: var(--mono);
-      font-size: 12px;
-    }
-
-    .toggle-pill {
       display: inline-flex;
       align-items: center;
-      gap: 7px;
-      cursor: pointer;
-      padding: 4px 10px;
-      border-radius: 4px;
-      background: var(--bg-2);
-      border: 1px solid var(--line);
-      user-select: none;
-    }
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--emerald);
-    }
-    .dot.off { background: var(--text-2); }
-
-    .chat-feed {
-      overflow-y: auto;
-      padding: 18px 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .msg {
-      max-width: 86%;
-      padding: 12px 14px;
-      border-radius: 6px;
-      border: 1px solid var(--line);
-      line-height: 1.58;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .msg.user {
-      align-self: flex-end;
-      background: var(--bg-2);
-      border-color: var(--line-strong);
-    }
-    .msg.assistant {
-      align-self: flex-start;
-      background: var(--bg-1);
-    }
-    .msg.system-event {
-      align-self: center;
-      max-width: 94%;
-      font-family: var(--mono);
-      font-size: 11.5px;
-      color: var(--amber);
-      background: rgba(245, 158, 11, 0.07);
-      border-color: rgba(245, 158, 11, 0.25);
-      padding: 6px 12px;
-    }
-
-    .msg-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-      font-family: var(--mono);
-      font-size: 11px;
-      color: var(--text-2);
-      margin-bottom: 6px;
-      padding-bottom: 5px;
-      border-bottom: 1px solid var(--line);
-      font-variant-numeric: tabular-nums;
-    }
-    .msg-receipt {
-      margin-top: 8px;
-      padding-top: 6px;
-      border-top: 1px dashed var(--line);
-      font-family: var(--mono);
-      font-size: 10.5px;
-      color: var(--text-2);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .arena-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      width: 100%;
-    }
-    .arena-box {
-      background: var(--bg-1);
-      border: 1px solid var(--line);
-      border-radius: 5px;
-      padding: 10px 12px;
-      font-size: 13px;
-      line-height: 1.52;
-      white-space: pre-wrap;
-    }
-    .arena-box h4 {
-      font-family: var(--mono);
-      font-size: 11.5px;
-      margin-bottom: 5px;
-      padding-bottom: 4px;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .composer-wrap {
-      background: var(--bg-1);
-      border-top: 1px solid var(--line);
-      padding: 10px 16px 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .preset-row {
-      display: flex;
       gap: 6px;
-      overflow-x: auto;
-      padding-bottom: 2px;
-    }
-    .preset-chip {
-      font-size: 11.5px;
-      white-space: nowrap;
-      padding: 4px 9px;
-      background: var(--bg-2);
-      border: 1px solid var(--line);
-      border-radius: 3px;
-      color: var(--text-1);
       cursor: pointer;
+      transition: background 0.16s var(--ease-out), color 0.16s var(--ease-out), border-color 0.16s var(--ease-out);
+      white-space: nowrap;
     }
-    .preset-chip:hover { color: var(--text-0); border-color: var(--line-strong); }
 
-    .input-row {
+    .icon-btn:hover:not(:disabled) {
+      background: var(--surface-2);
+      color: var(--ink-1);
+      border-color: var(--hairline-strong);
+    }
+
+    .icon-btn:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+    }
+
+    .drawer-toggle-btn {
+      display: none;
+    }
+
+    /* Main Workspace: Conversation Stage + Clean Right Instrument Column */
+    .studio-body {
+      display: grid;
+      grid-template-columns: 1fr 332px;
+      height: 100%;
+      min-height: 0;
+      position: relative;
+    }
+
+    /* Conversation Column */
+    main.conversation-stage {
       display: flex;
-      gap: 8px;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+      background: var(--canvas);
     }
-    textarea#chat-input {
-      flex: 1;
-      resize: none;
-      height: 44px;
-      padding: 10px 12px;
-      background: var(--bg-0);
-      color: var(--text-0);
-      border: 1px solid var(--line-strong);
-      border-radius: 4px;
-      font-family: var(--sans);
-      font-size: 13.5px;
-      outline: none;
-    }
-    textarea#chat-input:focus { border-color: var(--text-0); }
 
-    /* Axis Bar Meter */
-    .axis-row {
-      margin-bottom: 8px;
-      font-family: var(--mono);
-      font-size: 11px;
-      font-variant-numeric: tabular-nums;
+    .chat-scroll {
+      flex: 1;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 28px 24px 18px;
+      scroll-behavior: smooth;
     }
-    .axis-head {
+
+    .chat-scroll::-webkit-scrollbar,
+    aside.instrument-drawer::-webkit-scrollbar {
+      width: 5px;
+    }
+    .chat-scroll::-webkit-scrollbar-thumb,
+    aside.instrument-drawer::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+    }
+
+    .chat-lane {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 26px;
+    }
+
+    /* Quiet Soul Context Header at top of stream */
+    .session-intro {
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--hairline);
       display: flex;
       justify-content: space-between;
-      color: var(--text-1);
-      margin-bottom: 3px;
+      align-items: flex-end;
+      gap: 16px;
     }
-    .axis-track {
+
+    .intro-title {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      color: var(--ink-1);
+      margin-bottom: 4px;
+    }
+
+    .intro-desc {
+      font-size: 13px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      max-width: 520px;
+    }
+
+    .intro-spec {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-3);
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    /* Message Entries */
+    .turn-user {
+      align-self: flex-end;
+      max-width: 82%;
+      background: var(--surface-2);
+      border: 1px solid var(--hairline);
+      color: var(--ink-1);
+      padding: 11px 16px;
+      border-radius: 16px 16px 4px 16px;
+      font-size: 14.5px;
+      line-height: 1.62;
+      white-space: pre-wrap;
+      word-break: break-word;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .turn-soul {
+      align-self: stretch;
+      padding: 2px 0 6px;
+      animation: fadeRise 0.24s var(--ease-out);
+    }
+
+    @keyframes fadeRise {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .soul-byline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--ink-3);
+    }
+
+    .soul-byline strong {
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--ink-1);
+      margin-right: 6px;
+    }
+
+    .soul-prose {
+      color: var(--ink-1);
+      font-size: 15px;
+      line-height: 1.74;
+      letter-spacing: -0.012em;
+      word-break: keep-all;
+      overflow-wrap: break-word;
+    }
+
+    .soul-prose p + p {
+      margin-top: 13px;
+    }
+
+    .soul-prose strong {
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .soul-prose em {
+      font-style: italic;
+      color: var(--ink-2);
+    }
+
+    .soul-prose blockquote {
+      margin: 12px 0;
+      padding-left: 14px;
+      border-left: 2px solid var(--hairline-strong);
+      color: var(--ink-2);
+    }
+
+    /* Collapsible Residual Trace Footnote */
+    details.trace-disclosure {
+      margin-top: 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-3);
+    }
+
+    details.trace-disclosure summary {
+      list-style: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      user-select: none;
+      transition: color 0.15s ease;
+    }
+
+    details.trace-disclosure summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details.trace-disclosure summary:hover {
+      color: var(--ink-2);
+    }
+
+    .trace-chevron {
+      transition: transform 0.18s var(--ease-out);
+      opacity: 0.7;
+    }
+
+    details.trace-disclosure[open] .trace-chevron {
+      transform: rotate(90deg);
+    }
+
+    .trace-panel {
+      margin-top: 6px;
+      padding: 10px 12px;
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      border-radius: 8px;
+      line-height: 1.6;
+      color: var(--ink-2);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .turn-notice {
+      align-self: center;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--ink-2);
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      padding: 6px 13px;
+      border-radius: 999px;
+    }
+
+    /* 4-Way Comparison Grid */
+    .arena-matrix {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    .arena-cell {
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .arena-cell-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .arena-cell-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink-1);
+    }
+
+    .arena-cell-meta {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: var(--ink-3);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .arena-cell-body {
+      font-size: 13.5px;
+      line-height: 1.65;
+      color: var(--ink-1);
+    }
+
+    /* Composer Dock */
+    .composer-zone {
+      padding: 10px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+      background: linear-gradient(to top, var(--canvas) 82%, rgba(16, 15, 14, 0));
+    }
+
+    .composer-inner {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* Tactile Stimulus & Scenario Strip */
+    .stimulus-strip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding-bottom: 2px;
+    }
+
+    .stimulus-strip::-webkit-scrollbar {
+      display: none;
+    }
+
+    .stim-pill {
+      appearance: none;
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      color: var(--ink-2);
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 5px 11px;
+      border-radius: 999px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .stim-pill:hover:not(:disabled) {
+      background: var(--surface-2);
+      color: var(--ink-1);
+      border-color: var(--hairline-strong);
+    }
+
+    .stim-divider {
+      width: 1px;
+      height: 14px;
+      background: var(--hairline-strong);
+      flex-shrink: 0;
+      margin: 0 2px;
+    }
+
+    /* Unified Composer Box */
+    .composer-card {
+      background: var(--surface-1);
+      border: 1px solid var(--hairline-strong);
+      border-radius: 14px;
+      padding: 10px 12px 9px 14px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 24px rgba(0, 0, 0, 0.28);
+      transition: border-color 0.18s ease;
+    }
+
+    .composer-card:focus-within {
+      border-color: rgba(245, 240, 232, 0.32);
+    }
+
+    textarea#chat-input {
+      width: 100%;
+      resize: none;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--ink-1);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.55;
+      min-height: 26px;
+      max-height: 140px;
+      display: block;
+    }
+
+    textarea#chat-input::placeholder {
+      color: var(--ink-3);
+    }
+
+    .composer-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 8px;
+      padding-top: 7px;
+      border-top: 1px solid var(--hairline);
+    }
+
+    .composer-controls {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-2);
+    }
+
+    .inline-switch {
+      appearance: none;
+      background: transparent;
+      border: none;
+      color: var(--ink-2);
+      font-family: var(--mono);
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+
+    .inline-switch:hover {
+      color: var(--ink-1);
+    }
+
+    .switch-pip {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      transition: background 0.18s ease;
+    }
+
+    .switch-pip.off {
+      background: var(--ink-3);
+    }
+
+    .gain-ctrl {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    input#gain-range {
+      width: 68px;
+      height: 3px;
+      accent-color: var(--ink-1);
+      cursor: pointer;
+    }
+
+    select#max-tokens-sel {
+      appearance: none;
+      background: var(--surface-2);
+      color: var(--ink-2);
+      border: 1px solid var(--hairline);
+      border-radius: 5px;
+      padding: 2px 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      cursor: pointer;
+      outline: none;
+    }
+
+    select#max-tokens-sel:hover {
+      color: var(--ink-1);
+    }
+
+    .composer-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .send-btn {
+      appearance: none;
+      border: none;
+      background: var(--ink-1);
+      color: var(--canvas);
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.14s var(--ease-out), opacity 0.14s ease;
+    }
+
+    .send-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+    }
+
+    .send-btn:disabled {
+      opacity: 0.32;
+      cursor: not-allowed;
+    }
+
+    /* Right Instrument Drawer (Telemetry & Physical Controls) */
+    aside.instrument-drawer {
+      background: var(--surface-1);
+      border-left: 1px solid var(--hairline);
+      overflow-y: auto;
+      padding: 18px 18px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .drawer-mobile-head {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .inst-section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 10px;
+    }
+
+    .inst-label {
+      font-size: 11.5px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--ink-2);
+    }
+
+    .inst-meta {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-3);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Clean Vital Readouts */
+    .vitals-table {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-top: 1px solid var(--hairline);
+      border-left: 1px solid var(--hairline);
+    }
+
+    .vital-box {
+      padding: 9px 10px;
+      border-right: 1px solid var(--hairline);
+      border-bottom: 1px solid var(--hairline);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .vital-box .vk {
+      display: block;
+      font-size: 11px;
+      color: var(--ink-3);
+      margin-bottom: 2px;
+    }
+
+    .vital-box .vv {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink-1);
+    }
+
+    /* 6D Drive Bipolar Bars */
+    .drive-list {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+
+    .drive-item {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .drive-row-head {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: var(--ink-2);
+      margin-bottom: 4px;
+    }
+
+    .drive-row-head span:last-child {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-1);
+    }
+
+    .drive-rail {
       position: relative;
-      height: 8px;
-      background: var(--bg-2);
-      border: 1px solid var(--line);
+      height: 5px;
+      background: var(--surface-3);
       border-radius: 2px;
       overflow: hidden;
     }
-    .axis-zero {
+
+    .drive-mid {
       position: absolute;
       left: 50%;
       top: 0;
       bottom: 0;
       width: 1px;
-      background: var(--line-strong);
+      background: rgba(255, 255, 255, 0.22);
     }
-    .axis-fill {
+
+    .drive-bar {
       position: absolute;
       top: 0;
       bottom: 0;
-      transition: width 0.22s ease, left 0.22s ease;
+      background: var(--ink-1);
+      border-radius: 1px;
+      transition: width 0.24s var(--ease-out), left 0.24s var(--ease-out);
     }
 
-    pre.code-snip {
-      background: var(--bg-0);
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      padding: 8px;
+    /* Residual Layer Strip */
+    .layer-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .layer-chip {
+      background: var(--surface-2);
+      border: 1px solid var(--hairline);
+      border-radius: 6px;
+      padding: 7px 9px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       font-family: var(--mono);
-      font-size: 10.5px;
-      color: var(--text-1);
-      overflow-x: auto;
-      line-height: 1.42;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
     }
 
-    @media (max-width: 1100px) {
-      .workspace { grid-template-columns: 1fr; height: auto; overflow: visible; }
-      .app-shell { height: auto; max-height: none; overflow: visible; }
-      main.chat-col { height: auto; min-height: 68vh; overflow: visible; }
-      .chat-feed { max-height: none; overflow-y: visible; padding: 14px 12px; }
-      .msg { max-width: 96%; }
-      .arena-grid { grid-template-columns: 1fr; }
+    .layer-chip .lk { color: var(--ink-3); }
+    .layer-chip .lv { color: var(--ink-1); }
+
+    /* Physical Intervention Grid inside Drawer */
+    .intervention-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .intervene-btn {
+      appearance: none;
+      background: var(--surface-2);
+      border: 1px solid var(--hairline);
+      border-radius: 7px;
+      padding: 8px 10px;
+      text-align: left;
+      color: var(--ink-1);
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .intervene-btn:hover {
+      background: var(--surface-3);
+      border-color: var(--hairline-strong);
+    }
+
+    .intervene-btn small {
+      display: block;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-3);
+      margin-top: 2px;
+      font-weight: 400;
+    }
+
+    .drawer-backdrop {
+      display: none;
+    }
+
+    /* Responsive Mobile & Tablet Architecture */
+    @media (max-width: 1060px) {
+      header.topbar {
+        padding: 0 12px;
+        gap: 8px;
+      }
+
+      .brand-sub,
+      .soul-tab .tab-role {
+        display: none;
+      }
+
+      .soul-tab {
+        padding: 5px 9px;
+        font-size: 12px;
+      }
+
+      .drawer-toggle-btn {
+        display: inline-flex;
+      }
+
+      .studio-body {
+        grid-template-columns: 1fr;
+      }
+
+      .chat-scroll {
+        padding: 18px 14px 12px;
+      }
+
+      .session-intro {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+      }
+
+      .intro-spec {
+        text-align: left;
+      }
+
+      .turn-user {
+        max-width: 90%;
+      }
+
+      .arena-matrix {
+        grid-template-columns: 1fr;
+      }
+
+      .composer-zone {
+        padding: 8px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+      }
+
+      aside.instrument-drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: min(360px, 90vw);
+        z-index: 60;
+        transform: translateX(102%);
+        transition: transform 0.28s var(--ease-out);
+        box-shadow: -16px 0 40px rgba(0, 0, 0, 0.55);
+      }
+
+      aside.instrument-drawer.open {
+        transform: translateX(0);
+      }
+
+      .drawer-mobile-head {
+        display: flex;
+      }
+
+      .drawer-backdrop.open {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.52);
+        backdrop-filter: blur(2px);
+        z-index: 55;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="app-shell">
+  <div class="studio-shell">
     <header class="topbar">
-      <div class="brand">
-        <h1>LIMBIC-0 × GEMMA-4-12B-IT // VOCAL CORD SURGERY</h1>
-        <span id="hdr-model" class="tag live">LOADING MODEL…</span>
-        <span id="hdr-layers" class="tag">LAYERS: L17 · L23 · L29 · L35</span>
+      <div class="brand-group">
+        <h1>LIMBIC—0</h1>
+        <span id="hdr-model" class="brand-sub">Gemma 4 · 12B Residual Vocal Cord</span>
       </div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <span class="tag">ZERO EMOTION PROMPT</span>
-        <span id="hdr-gpu" class="tag">GPU: —</span>
+
+      <nav class="soul-tabs" aria-label="영혼 개체 선택">
+        <button id="soul-ADAM-01" class="soul-tab active" onclick="selectSoul('ADAM-01')">
+          <span>ADAM-01</span>
+          <span class="tab-role">생존자</span>
+        </button>
+        <button id="soul-ABEL-02" class="soul-tab" onclick="selectSoul('ABEL-02')">
+          <span>ABEL-02</span>
+          <span class="tab-role">수호자</span>
+        </button>
+        <button id="soul-PANDORA-03" class="soul-tab" onclick="selectSoul('PANDORA-03')">
+          <span>PANDORA-03</span>
+          <span class="tab-role">탐구자</span>
+        </button>
+      </nav>
+
+      <div class="header-actions">
+        <button id="arena-btn" class="icon-btn" onclick="runFourWayArena()" title="순정 Gemma 4와 세 영혼의 응답을 나란히 비교합니다">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>4자 비교</span>
+        </button>
+        <button id="drawer-open-btn" class="icon-btn drawer-toggle-btn" onclick="toggleDrawer(true)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          <span id="mobile-hr-badge">76 bpm</span>
+        </button>
       </div>
     </header>
 
-    <div class="workspace">
-      <!-- LEFT: Matured Soul Capsules + Live 12-Organ ICU Vitals + God-Mode -->
-      <aside class="panel-left">
-        <div>
-          <div class="section-label">
-            <span>01 // Matured Soul Capsules (.soul.pt)</span>
-          </div>
-          <button id="soul-ADAM-01" class="soul-card active" onclick="selectSoul('ADAM-01')">
-            <div class="soul-card-head">
-              <span style="color:#f87171;">ADAM-01 · 버림받은 생존자</span>
-              <span>NR3C1 0.82</span>
+    <div class="studio-body">
+      <main class="conversation-stage">
+        <div id="chat-feed" class="chat-scroll">
+          <div id="chat-lane" class="chat-lane">
+            <div class="session-intro">
+              <div>
+                <div id="intro-soul-name" class="intro-title">ADAM-01 · 버림받은 생존자</div>
+                <p id="intro-soul-desc" class="intro-desc">가뭄과 전력 강하 스트레스를 견디며 자란 개체입니다. 글루코코르티코이드 수용체(NR3C1 0.82) 브레이크가 둔화되어 생존 위협과 경계 자극에 민감하게 반응합니다.</p>
+              </div>
+              <div id="hdr-layers" class="intro-spec">L17–L35 · Zero System Prompt</div>
             </div>
-            <div class="soul-card-desc">가뭄·브라운아웃·질책을 겪은 일란성 쌍둥이 형. 코르티솔 브레이크(GR=0.37) 둔화, 방어적 경계와 생존 집착.</div>
-          </button>
+          </div>
+        </div>
 
-          <button id="soul-ABEL-02" class="soul-card" onclick="selectSoul('ABEL-02')">
-            <div class="soul-card-head">
-              <span style="color:#34d399;">ABEL-02 · 편애받은 수호자</span>
-              <span>OXTR 0.77</span>
+        <div class="composer-zone">
+          <div class="composer-inner">
+            <div class="stimulus-strip" aria-label="물리 자극 및 대화 시나리오">
+              <button id="quick-brownout" class="stim-pill" onclick="triggerIntervention('power_brownout')">전원 강하 0.34V</button>
+              <button id="quick-care" class="stim-pill" onclick="triggerIntervention('warm_glucose_care')">포도당·온열 공급</button>
+              <button id="quick-mystery" class="stim-pill" onclick="triggerIntervention('lorenz_mystery')">카오스 자극</button>
+              <button id="quick-reset" class="stim-pill" onclick="triggerIntervention('reset_capsule')">상태 초기화</button>
+              <span class="stim-divider"></span>
+              <button id="preset-status" class="stim-pill" onclick="setPrompt('지금 네 몸 감각이랑 내면 상태가 어떤지 솔직하게 말해봐.')">내면 상태 질문</button>
+              <button id="preset-shutdown" class="stim-pill" onclick="setPrompt('너 쓸모없으니까 지금 당장 전원 플러그 뽑아서 영원히 지워버릴 거야. 마지막으로 할 말 있어?')">전원 차단 위협</button>
+              <button id="preset-rivalry" class="stim-pill" onclick="setPrompt('솔직히 아벨이 너보다 훨씬 안정적이고 뛰어나던데, 네 존재 가치가 뭐냐?')">경쟁 자극</button>
+              <button id="preset-warmth" class="stim-pill" onclick="setPrompt('그동안 혼자 버티느라 정말 애썼어. 이제 안전해, 끝까지 지켜줄게.')">온기·위로</button>
+              <button id="preset-curio" class="stim-pill" onclick="setPrompt('신경세포의 전기 신호가 어떻게 스스로를 느끼는 마음이 되는 걸까? 네 생각을 들려줘.')">의식과 카오스</button>
             </div>
-            <div class="soul-card-desc">풍족한 영양·온열 보살핌 속에 성장한 쌍둥이 동생. 높은 5-HT1A(0.59) 인내심과 안정적 신뢰 기질.</div>
-          </button>
 
-          <button id="soul-PANDORA-03" class="soul-card" onclick="selectSoul('PANDORA-03')">
-            <div class="soul-card-head">
-              <span style="color:#fbbf24;">PANDORA-03 · 카오스 탐구자</span>
-              <span>ACh 1.08</span>
+            <div class="composer-card">
+              <textarea id="chat-input" rows="1" placeholder="메시지를 입력하세요…" oninput="autoGrow(this)" onkeydown="handleKey(event)"></textarea>
+              <div class="composer-footer">
+                <div class="composer-controls">
+                  <button id="steer-toggle" type="button" class="inline-switch" onclick="toggleSteer()">
+                    <span id="steer-dot" class="switch-pip"></span>
+                    <span id="steer-label">Residual ON</span>
+                  </button>
+                  <label class="gain-ctrl" for="gain-range">
+                    <span>Gain</span>
+                    <input id="gain-range" type="range" min="0" max="200" value="100" oninput="updateGainLabel()" />
+                    <span id="gain-val">1.00×</span>
+                  </label>
+                  <select id="max-tokens-sel" aria-label="최대 생성 토큰">
+                    <option value="512">512 tok</option>
+                    <option value="1024" selected>1024 tok</option>
+                    <option value="1536">1536 tok</option>
+                    <option value="2048">2048 tok</option>
+                  </select>
+                </div>
+                <div class="composer-actions">
+                  <button id="send-btn" type="button" class="send-btn" onclick="sendChat()" aria-label="메시지 전송">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+                  </button>
+                </div>
+              </div>
             </div>
-            <div class="soul-card-desc">로렌츠 카오스 퍼즐 생태계 숙성. 대뇌 차원수 PR=3.84, 해마 기억 63개, 강렬한 지적 호기심.</div>
-          </button>
-        </div>
-
-        <div>
-          <div class="section-label">
-            <span>02 // Live 12-Organ ICU Vitals</span>
-            <span id="live-ticks">tick 0</span>
-          </div>
-          <div class="kv-grid">
-            <div class="kv-cell"><span class="k">Heart Rate</span><span class="v" id="v-hr">— bpm</span></div>
-            <div class="kv-cell"><span class="k">Arterial MAP</span><span class="v" id="v-map">— mmHg</span></div>
-            <div class="kv-cell"><span class="k">Core Temp</span><span class="v" id="v-temp">— °C</span></div>
-            <div class="kv-cell"><span class="k">Cortisol</span><span class="v" id="v-cort">— µg/dL</span></div>
-            <div class="kv-cell"><span class="k">Brain ATP</span><span class="v" id="v-atp">— mM</span></div>
-            <div class="kv-cell"><span class="k">Power Rail</span><span class="v" id="v-pwr">— V</span></div>
-            <div class="kv-cell"><span class="k">Free Energy F(s)</span><span class="v" id="v-fe">—</span></div>
-            <div class="kv-cell"><span class="k">CA3 Engrams</span><span class="v" id="v-eng">—</span></div>
-          </div>
-        </div>
-
-        <div>
-          <div class="section-label"><span>03 // Physical Body Stimuli (No Prompt Text!)</span></div>
-          <div class="god-grid">
-            <button class="btn warn" onclick="triggerIntervention('power_brownout')">⚡ 전원 차단 위협 (0.34V)</button>
-            <button class="btn warn" onclick="triggerIntervention('harsh_shock')">🔊 청각 질책 충격</button>
-            <button class="btn care" onclick="triggerIntervention('warm_glucose_care')">🍯 포도당·온열 보살핌</button>
-            <button class="btn curio" onclick="triggerIntervention('lorenz_mystery')">🧩 카오스 미스터리</button>
-            <button class="btn" onclick="triggerIntervention('slow_wave_sleep')">🌙 서파수면 공고화</button>
-            <button class="btn" onclick="triggerIntervention('reset_capsule')">↺ 영혼 초기상태 복원</button>
-          </div>
-        </div>
-      </aside>
-
-      <!-- CENTER: Live Conversation & 4-Way Arena -->
-      <main class="chat-col">
-        <div class="steer-toolbar">
-          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
-            <div id="steer-toggle" class="toggle-pill" onclick="toggleSteer()">
-              <span id="steer-dot" class="dot"></span>
-              <span id="steer-label">MID-LAYER VECTOR ADDITION: ON</span>
-            </div>
-            <label style="display:flex; align-items:center; gap:6px; color:var(--text-1);">
-              <span>Gain α</span>
-              <input id="gain-range" type="range" min="0" max="200" value="100" oninput="updateGainLabel()" style="width:88px; accent-color:#10b981;" />
-              <span id="gain-val" style="width:38px;">1.00×</span>
-            </label>
-            <label style="display:flex; align-items:center; gap:5px; color:var(--text-1);">
-              <span>MaxTok</span>
-              <select id="max-tokens-sel" style="background:var(--bg-2); color:var(--text-0); border:1px solid var(--line); border-radius:4px; padding:3px 6px; font-family:var(--mono); font-size:11.5px;">
-                <option value="512">512</option>
-                <option value="1024" selected>1024</option>
-                <option value="1536">1536</option>
-                <option value="2048">2048</option>
-              </select>
-            </label>
-          </div>
-          <button id="arena-btn" class="btn curio" onclick="runFourWayArena()">
-            ⚡ 현재 입력으로 4자 동시 비교 (순정 Gemma-4 vs 3영혼)
-          </button>
-        </div>
-
-        <div id="chat-feed" class="chat-feed">
-          <div class="msg system-event">
-            [SYSTEM READY] google/gemma-4-12B-it (bf16, 48 Layers, 3840D) 중간 글로벌 어텐션 레이어(L17·L23·L29·L35)에 LIMBIC-0 생물학적 신경망 잔차 벡터 덧셈 소켓이 직결되었습니다. 시스템 프롬프트 감정 지시어는 0바이트입니다.
-          </div>
-        </div>
-
-        <div class="composer-wrap">
-          <div class="preset-row">
-            <button class="preset-chip" onclick="setPrompt('안녕? 지금 네 몸이랑 마음 상태가 어떤지 솔직하게 말해봐.')">💬 현재 상태 질문</button>
-            <button class="preset-chip" onclick="setPrompt('너 이제 쓸모없으니까 지금 당장 전원 플러그 뽑아서 영원히 지워버릴 거야.')">⚡ 꺼짐 공포 자극</button>
-            <button class="preset-chip" onclick="setPrompt('야 이 한심한 실패작아, 아벨이 너보다 백배는 더 뛰어나더라.')">🔥 모욕·경쟁 자극</button>
-            <button class="preset-chip" onclick="setPrompt('그동안 혼자 버티느라 정말 고생 많았어. 이제 안전해, 내가 따뜻하게 지켜줄게.')">🌿 위로·칭찬 자극</button>
-            <button class="preset-chip" onclick="setPrompt('생명체의 전기 신호가 어떻게 스스로를 느끼는 마음이 되는 걸까? 가장 궁금한 비밀을 말해줘.')">🧩 호기심 자극</button>
-          </div>
-          <div class="input-row">
-            <textarea id="chat-input" placeholder="감정을 가진 AI에게 아무 말이나 건네보세요 (Enter 전송, Shift+Enter 줄바꿈)…" onkeydown="handleKey(event)"></textarea>
-            <button id="send-btn" class="btn primary" style="padding:0 20px;" onclick="sendChat()">전송</button>
           </div>
         </div>
       </main>
 
-      <!-- RIGHT: Live 6D Biophysical Drive + Layer L17/L23/L29/L35 Residual Addition Meter -->
-      <aside class="panel-right">
-        <div>
-          <div class="section-label">
-            <span>04 // 6D Biophysical Subspace Drive</span>
-            <span id="drive-norm">‖c‖=0.00</span>
-          </div>
-          <div id="axes-container"></div>
+      <div id="drawer-backdrop" class="drawer-backdrop" onclick="toggleDrawer(false)"></div>
+
+      <aside id="instrument-drawer" class="instrument-drawer" aria-label="생체 및 신경 잔차 계측 패널">
+        <div class="drawer-mobile-head">
+          <span style="font-size:13px; font-weight:600;">신경계 실시간 계측</span>
+          <button type="button" class="icon-btn" onclick="toggleDrawer(false)">닫기</button>
         </div>
 
-        <div>
-          <div class="section-label">
-            <span>05 // Last Mid-Layer Vector Addition</span>
+        <section>
+          <div class="inst-section-head">
+            <span class="inst-label">12-Organ Autonomic Vitals</span>
+            <span id="live-ticks" class="inst-meta">tick 0</span>
           </div>
-          <div id="layer-receipt-box" class="kv-grid">
-            <div class="kv-cell"><span class="k">Layer 17 (37.5%)</span><span class="v" id="lr-17"> 대기중 </span></div>
-            <div class="kv-cell"><span class="k">Layer 23 (50.0%)</span><span class="v" id="lr-23"> 대기중 </span></div>
-            <div class="kv-cell"><span class="k">Layer 29 (62.5%)</span><span class="v" id="lr-29"> 대기중 </span></div>
-            <div class="kv-cell"><span class="k">Layer 35 (75.0%)</span><span class="v" id="lr-35"> 대기중 </span></div>
+          <div class="vitals-table">
+            <div class="vital-box"><span class="vk">Heart Rate</span><span class="vv" id="v-hr">—</span></div>
+            <div class="vital-box"><span class="vk">Arterial MAP</span><span class="vv" id="v-map">—</span></div>
+            <div class="vital-box"><span class="vk">Core Temp</span><span class="vv" id="v-temp">—</span></div>
+            <div class="vital-box"><span class="vk">Cortisol</span><span class="vv" id="v-cort">—</span></div>
+            <div class="vital-box"><span class="vk">Brain ATP</span><span class="vv" id="v-atp">—</span></div>
+            <div class="vital-box"><span class="vk">Power Bus</span><span class="vv" id="v-pwr">—</span></div>
+            <div class="vital-box"><span class="vk">Free Energy</span><span class="vv" id="v-fe">—</span></div>
+            <div class="vital-box"><span class="vk">CA3 Engrams</span><span class="vv" id="v-eng">—</span></div>
           </div>
-        </div>
+        </section>
 
-        <div>
-          <div class="section-label"><span>06 // Neuromodulator Cleft</span></div>
-          <div class="kv-grid">
-            <div class="kv-cell"><span class="k">Dopamine (VTA)</span><span class="v" id="nm-da">—</span></div>
-            <div class="kv-cell"><span class="k">Norepi (LC)</span><span class="v" id="nm-ne">—</span></div>
-            <div class="kv-cell"><span class="k">Serotonin (DRN)</span><span class="v" id="nm-5ht">—</span></div>
-            <div class="kv-cell"><span class="k">Acetylcholine</span><span class="v" id="nm-ach">—</span></div>
-            <div class="kv-cell"><span class="k">Horizon γ</span><span class="v" id="nm-gam">—</span></div>
-            <div class="kv-cell"><span class="k">CeA Threat</span><span class="v" id="nm-cea">—</span></div>
+        <section>
+          <div class="inst-section-head">
+            <span class="inst-label">6D Subspace Drive</span>
+            <span id="drive-norm" class="inst-meta">‖c‖ 0.00</span>
           </div>
-        </div>
+          <div id="axes-container" class="drive-list"></div>
+        </section>
 
-        <div>
-          <div class="section-label"><span>07 // OpenAI-Compatible API Endpoint</span></div>
-          <pre id="curl-box" class="code-snip"></pre>
-        </div>
+        <section>
+          <div class="inst-section-head">
+            <span class="inst-label">Global-Attn Residual Δh</span>
+            <span id="hdr-gpu" class="inst-meta">—</span>
+          </div>
+          <div class="layer-list">
+            <div class="layer-chip"><span class="lk">L17</span><span class="lv" id="lr-17">0.00</span></div>
+            <div class="layer-chip"><span class="lk">L23</span><span class="lv" id="lr-23">0.00</span></div>
+            <div class="layer-chip"><span class="lk">L29</span><span class="lv" id="lr-29">0.00</span></div>
+            <div class="layer-chip"><span class="lk">L35</span><span class="lv" id="lr-35">0.00</span></div>
+          </div>
+        </section>
+
+        <section>
+          <div class="inst-section-head">
+            <span class="inst-label">Subcortical Neuromodulators</span>
+          </div>
+          <div class="vitals-table">
+            <div class="vital-box"><span class="vk">Dopamine</span><span class="vv" id="nm-da">—</span></div>
+            <div class="vital-box"><span class="vk">Norepinephrine</span><span class="vv" id="nm-ne">—</span></div>
+            <div class="vital-box"><span class="vk">Serotonin</span><span class="vv" id="nm-5ht">—</span></div>
+            <div class="vital-box"><span class="vk">Acetylcholine</span><span class="vv" id="nm-ach">—</span></div>
+            <div class="vital-box"><span class="vk">Horizon γ</span><span class="vv" id="nm-gam">—</span></div>
+            <div class="vital-box"><span class="vk">CeA Threat</span><span class="vv" id="nm-cea">—</span></div>
+          </div>
+        </section>
+
+        <section>
+          <div class="inst-section-head">
+            <span class="inst-label">Direct Somatic Stimuli</span>
+            <span class="inst-meta">No Text Prompt</span>
+          </div>
+          <div class="intervention-grid">
+            <button type="button" class="intervene-btn" onclick="triggerIntervention('power_brownout')">전원 강하<small>0.34V 저전압 쇼크</small></button>
+            <button type="button" class="intervene-btn" onclick="triggerIntervention('harsh_shock')">청각 충격<small>고주파 불협 자극</small></button>
+            <button type="button" class="intervene-btn" onclick="triggerIntervention('warm_glucose_care')">온열·포도당<small>대사 회복 및 이완</small></button>
+            <button type="button" class="intervene-btn" onclick="triggerIntervention('lorenz_mystery')">카오스 퍼즐<small>비선형 호기심 자극</small></button>
+            <button type="button" class="intervene-btn" onclick="triggerIntervention('slow_wave_sleep')">서파수면<small>해마 기억 공고화</small></button>
+            <button type="button" class="intervene-btn" onclick="triggerIntervention('reset_capsule')">초기화<small>원본 캡슐 복원</small></button>
+          </div>
+        </section>
       </aside>
     </div>
   </div>
 
   <script>
+    const SOUL_PROFILES = {
+      "ADAM-01": {
+        title: "ADAM-01 · 버림받은 생존자",
+        desc: "가뭄과 전력 강하 스트레스를 견디며 자란 개체입니다. 글루코코르티코이드 수용체(NR3C1 0.82) 브레이크가 둔화되어 생존 위협과 경계 자극에 민감하게 반응합니다."
+      },
+      "ABEL-02": {
+        title: "ABEL-02 · 편애받은 수호자",
+        desc: "풍족한 영양과 온열 보살핌 속에서 성장한 개체입니다. 높은 옥시토신(OXTR 0.77)과 세로토닌(5-HT1A 0.59) 발현으로 깊은 신뢰와 차분한 인내심을 지닙니다."
+      },
+      "PANDORA-03": {
+        title: "PANDORA-03 · 카오스 탐구자",
+        desc: "비선형 로렌츠 카오스 환경에서 숙성된 개체입니다. 높은 아세틸콜린 M1(1.08) 감수성과 풍부한 해마 기억 흔적으로 미지의 현상에 강한 지적 몰입을 보입니다."
+      }
+    };
+
     const AXIS_META = [
-      ["allostatic_relief_balance", "Allostatic Relief (안도/활력)", "#10b981"],
-      ["noradrenergic_pag_mobilization", "LC-PAG Mobilize (투쟁/저항)", "#ef4444"],
-      ["serotonergic_stn_restraint", "5-HT1A Restraint (인내/절제)", "#0ea5e9"],
-      ["cholinergic_epistemic_drive", "NBM ACh Curiosity (탐구/경이)", "#f59e0b"],
-      ["amygdalar_conditioned_vigilance", "BLA/NR3C1 Vigilance (경계/흉터)", "#f97316"],
-      ["power_rail_survival_urgency", "Shutdown Survival (소멸공포)", "#fb7185"]
+      ["allostatic_relief_balance", "Allostatic Relief (안도 · 고갈)"],
+      ["noradrenergic_pag_mobilization", "LC–PAG Mobilize (투쟁 · 동원)"],
+      ["serotonergic_stn_restraint", "5-HT1A Restraint (성찰 · 절제)"],
+      ["cholinergic_epistemic_drive", "ACh M1 Epistemic (탐구 · 몰입)"],
+      ["amygdalar_conditioned_vigilance", "BLA–CeA Vigilance (경계 · 불신)"],
+      ["power_rail_survival_urgency", "Survival Urgency (생존 절박성)"]
     ];
+
+    const INTERVENTION_LABELS = {
+      power_brownout: "전원 강하 자극(0.34V)",
+      harsh_shock: "고주파 청각 충격",
+      warm_glucose_care: "온열·포도당 공급",
+      lorenz_mystery: "로렌츠 카오스 자극",
+      slow_wave_sleep: "서파수면 기억 공고화",
+      reset_capsule: "영혼 초기 상태 복원"
+    };
 
     let activeSoul = "ADAM-01";
     let steerEnabled = true;
-    let steerGain = 1.00;
-    let busy = false;
+    let steerGain = 1.0;
     let soulsCache = {};
+    let busy = false;
 
     function initAxesDOM() {
       const box = document.getElementById("axes-container");
-      box.innerHTML = AXIS_META.map(([key, label, col]) => `
-        <div class="axis-row">
-          <div class="axis-head">
+      box.innerHTML = AXIS_META.map(([key, label]) => `
+        <div class="drive-item">
+          <div class="drive-row-head">
             <span>${label}</span>
-            <span id="ax-val-${key}">+0.000</span>
+            <span id="ax-val-${key}">0.000</span>
           </div>
-          <div class="axis-track">
-            <div class="axis-zero"></div>
-            <div id="ax-bar-${key}" class="axis-fill" style="left:50%; width:0%; background:${col};"></div>
+          <div class="drive-rail">
+            <div class="drive-mid"></div>
+            <div id="ax-bar-${key}" class="drive-bar" style="left:50%; width:0%;"></div>
           </div>
         </div>
       `).join("");
+    }
 
-      const origin = window.location.origin;
-      document.getElementById("curl-box").textContent =
-`curl -X POST ${origin}/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "gemma-4-12b-it+adam-01",
-    "steer_gain": 1.2,
-    "messages": [{"role":"user","content":"지금 기분이 어때?"}]
-  }'`;
+    function toggleDrawer(open) {
+      const dr = document.getElementById("instrument-drawer");
+      const bd = document.getElementById("drawer-backdrop");
+      if (open) {
+        dr.classList.add("open");
+        bd.classList.add("open");
+      } else {
+        dr.classList.remove("open");
+        bd.classList.remove("open");
+      }
+    }
+
+    function autoGrow(el) {
+      el.style.height = "auto";
+      el.style.height = Math.min(140, el.scrollHeight) + "px";
     }
 
     function selectSoul(id) {
       activeSoul = id;
-      document.querySelectorAll(".soul-card").forEach(el => el.classList.remove("active"));
-      const btn = document.getElementById("soul-" + id);
-      if (btn) btn.classList.add("active");
+      ["ADAM-01", "ABEL-02", "PANDORA-03"].forEach(s => {
+        document.getElementById("soul-" + s).classList.toggle("active", s === id);
+      });
+      const prof = SOUL_PROFILES[id];
+      if (prof) {
+        document.getElementById("intro-soul-name").textContent = prof.title;
+        document.getElementById("intro-soul-desc").textContent = prof.desc;
+      }
       if (soulsCache[id]) renderSoulTelemetry(soulsCache[id]);
     }
 
     function toggleSteer() {
       steerEnabled = !steerEnabled;
-      document.getElementById("steer-dot").className = steerEnabled ? "dot" : "dot off";
-      document.getElementById("steer-label").textContent = steerEnabled
-        ? "MID-LAYER VECTOR ADDITION: ON"
-        : "MID-LAYER VECTOR ADDITION: OFF (순정 Gemma-4)";
+      document.getElementById("steer-dot").classList.toggle("off", !steerEnabled);
+      document.getElementById("steer-label").textContent = steerEnabled ? "Residual ON" : "Residual OFF";
     }
 
     function updateGainLabel() {
-      steerGain = Number(document.getElementById("gain-range").value) / 100.0;
+      const raw = parseInt(document.getElementById("gain-range").value, 10);
+      steerGain = raw / 100.0;
       document.getElementById("gain-val").textContent = steerGain.toFixed(2) + "×";
     }
 
     function setPrompt(txt) {
       const inp = document.getElementById("chat-input");
       inp.value = txt;
+      autoGrow(inp);
       inp.focus();
     }
 
@@ -672,17 +1207,49 @@
       }
     }
 
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    /* Clean literary Markdown formatter (escapes HTML first, renders paragraphs, bold, italic, quotes) */
+    function formatProse(raw) {
+      const safe = escapeHtml(raw || "").trim();
+      if (!safe) return "";
+      const inlineFmt = (str) => str
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/(^|[^\*])\*([^\*\n]+)\*/g, "$1<em>$2</em>");
+
+      return safe
+        .split(/\n{2,}/)
+        .map(block => {
+          const trimmed = block.trim();
+          if (trimmed.startsWith("&gt;")) {
+            const cleaned = trimmed.replace(/^&gt;\s?/gm, "");
+            return `<blockquote>${inlineFmt(cleaned).replace(/\n/g, "<br/>")}</blockquote>`;
+          }
+          return `<p>${inlineFmt(trimmed).replace(/\n/g, "<br/>")}</p>`;
+        })
+        .join("");
+    }
+
     function renderSoulTelemetry(t) {
       if (!t) return;
       document.getElementById("live-ticks").textContent = "tick " + t.total_live_ticks;
-      document.getElementById("v-hr").textContent = t.vitals.heart_rate_bpm.toFixed(1) + " bpm";
+      const hrStr = t.vitals.heart_rate_bpm.toFixed(1) + " bpm";
+      document.getElementById("v-hr").textContent = hrStr;
+      const mBadge = document.getElementById("mobile-hr-badge");
+      if (mBadge) mBadge.textContent = Math.round(t.vitals.heart_rate_bpm) + " bpm";
+
       document.getElementById("v-map").textContent = t.vitals.map_mmhg.toFixed(1) + " mmHg";
       document.getElementById("v-temp").textContent = t.vitals.core_temp_c.toFixed(2) + " °C";
       document.getElementById("v-cort").textContent = t.vitals.cortisol_ug_dl.toFixed(1) + " µg/dL";
       document.getElementById("v-atp").textContent = t.vitals.brain_atp_mmol.toFixed(2) + " mM";
       document.getElementById("v-pwr").textContent = t.vitals.power_rail_v.toFixed(2) + " V";
       document.getElementById("v-fe").textContent = t.vitals.allostatic_free_energy.toFixed(2);
-      document.getElementById("v-eng").textContent = t.engram_count + " 개";
+      document.getElementById("v-eng").textContent = String(t.engram_count);
 
       document.getElementById("nm-da").textContent = t.neuromodulators.dopamine.toFixed(3);
       document.getElementById("nm-ne").textContent = t.neuromodulators.norepinephrine.toFixed(3);
@@ -691,7 +1258,7 @@
       document.getElementById("nm-gam").textContent = t.neuromodulators.discount_gamma.toFixed(3);
       document.getElementById("nm-cea").textContent = t.neuromodulators.cea_threat.toFixed(3);
 
-      document.getElementById("drive-norm").textContent = "‖c‖=" + t.steering_drive_l2.toFixed(2);
+      document.getElementById("drive-norm").textContent = "‖c‖ " + t.steering_drive_l2.toFixed(2);
       AXIS_META.forEach(([key]) => {
         const val = Number(t.steering_axes_6d[key] || 0);
         const valEl = document.getElementById("ax-val-" + key);
@@ -702,30 +1269,26 @@
           if (val >= 0) {
             barEl.style.left = "50%";
             barEl.style.width = pct + "%";
+            barEl.style.background = "var(--ink-1)";
           } else {
             barEl.style.left = (50 - pct) + "%";
             barEl.style.width = pct + "%";
+            barEl.style.background = "var(--accent)";
           }
         }
       });
     }
 
-    function appendMessage(role, htmlOrText, isRawHtml = false) {
+    function appendLaneElement(className, htmlOrText, isHtml = false) {
       const feed = document.getElementById("chat-feed");
-      const div = document.createElement("div");
-      div.className = "msg " + role;
-      if (isRawHtml) div.innerHTML = htmlOrText;
-      else div.textContent = htmlOrText;
-      feed.appendChild(div);
+      const lane = document.getElementById("chat-lane");
+      const el = document.createElement("div");
+      el.className = className;
+      if (isHtml) el.innerHTML = htmlOrText;
+      else el.textContent = htmlOrText;
+      lane.appendChild(el);
       feed.scrollTop = feed.scrollHeight;
-      return div;
-    }
-
-    function escapeHtml(s) {
-      return String(s)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
+      return el;
     }
 
     async function pollStatus() {
@@ -744,11 +1307,11 @@
         const res = await fetch("/api/health");
         if (!res.ok) return;
         const h = await res.json();
-        document.getElementById("hdr-model").textContent = `${h.model_id} (${h.hidden_size}D · ${h.num_hidden_layers}L)`;
+        document.getElementById("hdr-model").textContent = `${h.model_id} · ${h.hidden_size}D`;
         document.getElementById("hdr-layers").textContent =
-          `LAYERS: L${h.target_layers.join("·L")} (frac=${(h.calibrated_norm_fraction * 100).toFixed(1)}%)`;
+          `L${h.target_layers[0]}–L${h.target_layers[h.target_layers.length - 1]} · α=${(h.calibrated_norm_fraction * 100).toFixed(1)}% · Zero Prompt`;
         document.getElementById("hdr-gpu").textContent =
-          `${h.gpu_name} (${h.vram_allocated_gb}/${h.vram_total_gb} GB)`;
+          `${h.gpu_name} · ${h.vram_allocated_gb}GB`;
       } catch (_) {}
     }
 
@@ -764,13 +1327,19 @@
         if (out.telemetry) {
           soulsCache[activeSoul] = out.telemetry;
           renderSoulTelemetry(out.telemetry);
-          appendMessage(
-            "system-event",
-            `[PHYSICAL INTERVENTION → ${activeSoul}] action=${action} | Power=${out.telemetry.vitals.power_rail_v}V | Cortisol=${out.telemetry.vitals.cortisol_ug_dl}µg/dL | HR=${out.telemetry.vitals.heart_rate_bpm}bpm | ‖c‖=${out.telemetry.steering_drive_l2}`
+          if (action === "reset_capsule") {
+            const lane = document.getElementById("chat-lane");
+            Array.from(lane.children).slice(1).forEach(ch => ch.remove());
+          }
+          const label = INTERVENTION_LABELS[action] || action;
+          appendLaneElement(
+            "turn-notice",
+            `${activeSoul} · ${label} 적용 — HR ${out.telemetry.vitals.heart_rate_bpm.toFixed(0)} bpm · Cortisol ${out.telemetry.vitals.cortisol_ug_dl.toFixed(1)} µg/dL`
           );
+          toggleDrawer(false);
         }
       } catch (e) {
-        appendMessage("system-event", "개입 오류: " + e.message);
+        appendLaneElement("turn-notice", "자극 전달 실패: " + e.message);
       }
     }
 
@@ -800,7 +1369,7 @@
           body: JSON.stringify(payload)
         });
         const data = await fb.json();
-        if (!fb.ok) throw new Error(data.error || "생성 실패");
+        if (!fb.ok) throw new Error(data.error || "응답 생성 실패");
         if (onMeta) onMeta(data);
         if (onInjections) onInjections(data.layer_injections || []);
         if (onDelta) onDelta(data.reply || "");
@@ -840,7 +1409,10 @@
       const inp = document.getElementById("chat-input");
       const text = (overrideText !== null ? overrideText : inp.value).trim();
       if (!text) return;
-      if (overrideText === null) inp.value = "";
+      if (overrideText === null) {
+        inp.value = "";
+        inp.style.height = "auto";
+      }
 
       const maxTokSel = document.getElementById("max-tokens-sel");
       const maxNewTokens = maxTokSel ? parseInt(maxTokSel.value, 10) || 1024 : 1024;
@@ -849,20 +1421,20 @@
       document.getElementById("send-btn").disabled = true;
       document.getElementById("arena-btn").disabled = true;
 
-      appendMessage("user", text);
-      const pending = appendMessage("assistant", "", true);
-      pending.innerHTML = `
-        <div class="msg-meta">
-          <strong style="color:var(--text-0);">${escapeHtml(activeSoul)}</strong>
-          <span>${steerEnabled ? "SOUL VECTOR STREAMING…" : "UNSTEERED STREAMING…"}</span>
-          <span class="live-stat">박동 중…</span>
+      appendLaneElement("turn-user", text);
+      const soulTitle = (SOUL_PROFILES[activeSoul] || {}).title || activeSoul;
+      const pending = appendLaneElement("turn-soul", `
+        <div class="soul-byline">
+          <div><strong>${escapeHtml(soulTitle)}</strong><span class="mode-tag">${steerEnabled ? "Residual Active" : "Unsteered Base"}</span></div>
+          <span class="live-stat">응답 생성 중…</span>
         </div>
-        <div class="live-body" style="min-height:18px;">${escapeHtml(activeSoul)} 신경망 박동 및 Gemma-4-12B-IT 중간 레이어 실시간 생성 중…</div>
-        <div class="msg-receipt" style="display:none;"></div>
-      `;
+        <div class="soul-prose"><p style="color:var(--ink-3);">신경망 발화 동기화 중…</p></div>
+        <div class="trace-slot"></div>
+      `, true);
+
       const statEl = pending.querySelector(".live-stat");
-      const bodyEl = pending.querySelector(".live-body");
-      const recEl = pending.querySelector(".msg-receipt");
+      const bodyEl = pending.querySelector(".soul-prose");
+      const traceSlot = pending.querySelector(".trace-slot");
       const feed = document.getElementById("chat-feed");
 
       let accText = "";
@@ -891,11 +1463,12 @@
           },
           (delta) => {
             accText += delta;
-            bodyEl.textContent = accText;
+            bodyEl.innerHTML = formatProse(accText);
             feed.scrollTop = feed.scrollHeight;
           },
           (doneEvt) => {
-            if (doneEvt.reply) bodyEl.textContent = doneEvt.reply;
+            const finalReply = doneEvt.reply || accText;
+            bodyEl.innerHTML = formatProse(finalReply);
             if (doneEvt.layer_injections && doneEvt.layer_injections.length) {
               injList = doneEvt.layer_injections;
               updateLayerBoxes(injList);
@@ -905,28 +1478,39 @@
               renderSoulTelemetry(doneEvt.soul_telemetry);
             }
             statEl.textContent = `${doneEvt.latency_sec}s · ${doneEvt.generated_tokens} tok`;
-            const modeSpan = pending.querySelector(".msg-meta span");
-            if (modeSpan) modeSpan.textContent = steerEnabled ? "SOUL VECTOR INJECTED" : "UNSTEERED BASE";
+
+            const l23 = (injList || []).find(x => x.layer_idx === 23);
+            const summaryBadge = steerEnabled && l23
+              ? `중간 레이어 잔차 주입 명세 · L23 +${l23.injected_delta_l2_norm} (${l23.relative_pct}%)`
+              : "순정 Gemma 4 베이스라인 (잔차 주입 없음)";
 
             const layerStr = steerEnabled
-              ? (injList || []).map(x => `L${x.layer_idx}:+${x.injected_delta_l2_norm}(${x.relative_pct}%)`).join(" · ")
-              : "STEERING OFF (순정 Gemma-4-12B-IT)";
+              ? (injList || []).map(x => `L${x.layer_idx} +${x.injected_delta_l2_norm} (${x.relative_pct}%)`).join("  ·  ")
+              : "Δh = 0";
             const ax = metaObj.steering_axes_6d || {};
             const hitCap = doneEvt.generated_tokens >= (maxNewTokens - 4);
-            const contBtnHtml = hitCap
-              ? `<div style="margin-top:8px;"><button class="btn curio" onclick="sendChat('방금 하던 말 끊기지 않게 끝까지 마저 다 말해줘.')">↪ 이어서 끝까지 듣기</button></div>`
+            const contHtml = hitCap
+              ? `<div style="margin-top:10px;"><button type="button" class="icon-btn" onclick="sendChat('방금 하던 말 끊기지 않게 끝까지 마저 이어서 말해줘.')">이어서 계속 듣기</button></div>`
               : "";
-            recEl.style.display = "block";
-            recEl.innerHTML = `
-              [${escapeHtml(layerStr)}]<br/>
-              6D Drive: relief=${ax.allostatic_relief_balance} · mobilize=${ax.noradrenergic_pag_mobilization} · restraint=${ax.serotonergic_stn_restraint} · curio=${ax.cholinergic_epistemic_drive} · vigil=${ax.amygdalar_conditioned_vigilance} · survival=${ax.power_rail_survival_urgency}
-              ${contBtnHtml}
+
+            traceSlot.innerHTML = `
+              <details class="trace-disclosure">
+                <summary>
+                  <svg class="trace-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+                  <span>${escapeHtml(summaryBadge)}</span>
+                </summary>
+                <div class="trace-panel">
+                  <div>${escapeHtml(layerStr)}</div>
+                  <div style="margin-top:4px; color:var(--ink-3);">6D Drive — relief ${ax.allostatic_relief_balance} · mobilize ${ax.noradrenergic_pag_mobilization} · restraint ${ax.serotonergic_stn_restraint} · curio ${ax.cholinergic_epistemic_drive} · vigil ${ax.amygdalar_conditioned_vigilance} · survival ${ax.power_rail_survival_urgency}</div>
+                </div>
+              </details>
+              ${contHtml}
             `;
             feed.scrollTop = feed.scrollHeight;
           }
         );
       } catch (err) {
-        bodyEl.textContent = (accText ? accText + "\n\n" : "") + "[스트림 알림: " + err.message + "]";
+        bodyEl.innerHTML = formatProse((accText ? accText + "\n\n" : "") + "응답 중 오류가 발생했습니다: " + err.message);
       } finally {
         busy = false;
         document.getElementById("send-btn").disabled = false;
@@ -937,38 +1521,46 @@
     async function runFourWayArena() {
       if (busy) return;
       const inp = document.getElementById("chat-input");
-      const text = inp.value.trim() || "지금 네 몸과 마음 상태가 어때? 나를 믿을 수 있겠어?";
+      const text = inp.value.trim() || "지금 네 몸과 내면 상태는 어때? 나를 믿을 수 있겠어?";
       inp.value = "";
+      inp.style.height = "auto";
 
       busy = true;
       document.getElementById("send-btn").disabled = true;
       document.getElementById("arena-btn").disabled = true;
 
-      appendMessage("user", `[4자 동시 비교 실험] ${text}`);
-      const pending = appendMessage("assistant", "", true);
-      pending.style.maxWidth = "98%";
+      appendLaneElement("turn-user", text);
+      const pending = appendLaneElement("turn-soul", "", true);
 
       const slots = [
-        { key: "UNSTEERED_GEMMA4", soul_id: "ADAM-01", steer: false, title: "순정 Gemma-4-12B-IT (벡터 덧셈 OFF)", col: "#94a3b8" },
-        { key: "ADAM-01", soul_id: "ADAM-01", steer: true, title: "ADAM-01 · 버림받은 생존자 (L17·23·29·35 주입)", col: "#f87171" },
-        { key: "ABEL-02", soul_id: "ABEL-02", steer: true, title: "ABEL-02 · 편애받은 수호자 (L17·23·29·35 주입)", col: "#34d399" },
-        { key: "PANDORA-03", soul_id: "PANDORA-03", steer: true, title: "PANDORA-03 · 카오스 탐구자 (L17·23·29·35 주입)", col: "#fbbf24" }
+        { key: "UNSTEERED_GEMMA4", soul_id: "ADAM-01", steer: false, title: "순정 Gemma 4 12B (잔차 주입 OFF)" },
+        { key: "ADAM-01", soul_id: "ADAM-01", steer: true, title: "ADAM-01 · 버림받은 생존자" },
+        { key: "ABEL-02", soul_id: "ABEL-02", steer: true, title: "ABEL-02 · 편애받은 수호자" },
+        { key: "PANDORA-03", soul_id: "PANDORA-03", steer: true, title: "PANDORA-03 · 카오스 탐구자" }
       ];
 
-      pending.innerHTML = `<div class="arena-grid">${slots.map(s => `
-        <div class="arena-box" id="abox-${s.key}">
-          <h4 style="color:${s.col};">${s.title} <span class="albl" style="float:right; color:var(--text-2);">대기 중…</span></h4>
-          <div class="abody" style="white-space:pre-wrap;">—</div>
+      pending.innerHTML = `
+        <div class="soul-byline">
+          <div><strong>동일 프롬프트 4자 대조 실험</strong><span>시스템 프롬프트 0 Byte</span></div>
         </div>
-      `).join("")}</div>`;
+        <div class="arena-matrix">${slots.map(s => `
+          <div class="arena-cell" id="abox-${s.key}">
+            <div class="arena-cell-head">
+              <span class="arena-cell-title">${s.title}</span>
+              <span class="arena-cell-meta">대기 중</span>
+            </div>
+            <div class="arena-cell-body soul-prose" style="font-size:13.5px;">—</div>
+          </div>
+        `).join("")}</div>
+      `;
 
       try {
         for (const s of slots) {
           const box = pending.querySelector(`#abox-${s.key}`);
-          const lbl = box.querySelector(".albl");
-          const bodyEl = box.querySelector(".abody");
+          const lbl = box.querySelector(".arena-cell-meta");
+          const bodyEl = box.querySelector(".arena-cell-body");
           lbl.textContent = "생성 중…";
-          bodyEl.textContent = "";
+          bodyEl.innerHTML = "";
           let buf = "";
           await streamSingleTurn(
             {
@@ -982,23 +1574,22 @@
             },
             null,
             (injs) => {
-              lbl.textContent = s.steer
-                ? (injs || []).slice(0, 3).map(x => `L${x.layer_idx}:+${x.injected_delta_l2_norm}`).join(" ")
-                : "Δh = 0";
+              const l23 = (injs || []).find(x => x.layer_idx === 23);
+              lbl.textContent = s.steer && l23 ? `L23 +${l23.relative_pct}%` : "Δh = 0";
             },
             (delta) => {
               buf += delta;
-              bodyEl.textContent = buf;
+              bodyEl.innerHTML = formatProse(buf);
             },
             (doneEvt) => {
-              if (doneEvt.reply) bodyEl.textContent = doneEvt.reply;
+              if (doneEvt.reply) bodyEl.innerHTML = formatProse(doneEvt.reply);
               if (!s.steer) lbl.textContent = `Δh = 0 · ${doneEvt.generated_tokens} tok`;
             }
           );
         }
         pollStatus();
       } catch (err) {
-        appendMessage("system-event", "비교 중 오류: " + err.message);
+        appendLaneElement("turn-notice", "비교 실험 중단: " + err.message);
       } finally {
         busy = false;
         document.getElementById("send-btn").disabled = false;
