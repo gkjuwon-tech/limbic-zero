@@ -293,6 +293,25 @@ class LivingSoulOrganism:
             nutrient_flux = 0.0
             water_flux = 0.0
 
+            is_chat_active = (
+                stim.prosodic_warmth
+                + stim.acoustic_roughness
+                + stim.epistemic_novelty
+                + stim.competitive_challenge
+                + stim.shutdown_threat_shock
+            ) > 0.02
+
+            # Basal homeostatic sustenance from healthy container PSU rail (prevents multi-hour idle starvation)
+            if (
+                self._bus_voltage >= 0.72
+                and stim.shutdown_threat_shock < 0.05
+                and stim.acoustic_roughness < 0.05
+            ):
+                if self.soma.metab.blood_glucose_mg_dl < 94.0 or self.soma.metab.brain_atp < 0.94:
+                    nutrient_flux = 0.28 * self._bus_voltage
+                if self.soma.metab.hydration_fraction < 0.995:
+                    water_flux = 0.14 * self._bus_voltage
+
             if stim.acoustic_roughness > 0.12 and t_i < 6:
                 mech_impulses[0] = float(stim.acoustic_roughness) * 0.24 * gr_vuln
                 mech_impulses[1] = float(stim.acoustic_roughness) * 0.14 * gr_vuln
@@ -300,8 +319,8 @@ class LivingSoulOrganism:
             if stim.prosodic_warmth > 0.05:
                 rad_watts[0] += 6.0 * float(stim.prosodic_warmth)
                 rad_watts[1] += 6.0 * float(stim.prosodic_warmth)
-                nutrient_flux = 0.35 * float(stim.prosodic_warmth)
-                water_flux = 0.22 * float(stim.prosodic_warmth)
+                nutrient_flux = max(nutrient_flux, 0.35 * float(stim.prosodic_warmth))
+                water_flux = max(water_flux, 0.22 * float(stim.prosodic_warmth))
 
             forces = ExogenousBodyForces(
                 ingested_nutrient_flux=nutrient_flux,
@@ -318,13 +337,20 @@ class LivingSoulOrganism:
             )
             motor_cmd = MotorMetabolicCommand(
                 interaction_effort=0.15 * float(stim.competitive_challenge),
-                vocalization_effort=0.10,
+                vocalization_effort=(0.10 if is_chat_active else 0.0),
                 neural_firing_load=min(
                     1.45,
-                    0.10 + 0.14 * float(stim.epistemic_novelty) + self._hw_neural_load_add,
+                    (0.08 if is_chat_active else 0.025)
+                    + 0.14 * float(stim.epistemic_novelty)
+                    + self._hw_neural_load_add,
                 ),
             )
             soma_diag = self.soma.step(dt=dt, motor_cmd=motor_cmd, forces=forces)
+            if not is_chat_active and self._bus_voltage >= 0.80 and self.soma.is_alive:
+                if self.soma.metab.brain_atp < 0.94:
+                    self.soma.metab.brain_atp = min(0.95, self.soma.metab.brain_atp + 0.06 * self._bus_voltage * dt)
+                if self.soma.metab.brain_pcr < 0.92:
+                    self.soma.metab.brain_pcr = min(0.94, self.soma.metab.brain_pcr + 0.05 * self._bus_voltage * dt)
             intero = self.socket.interoceptor.transduce(
                 soma=self.soma,
                 diag=soma_diag,
@@ -613,7 +639,7 @@ class Gemma4VocalCordSurgeon:
         )
         self.layers = resolve_decoder_layers(model)
         self.device = next(model.parameters()).device
-        self.gen_lock = threading.Lock()
+        self.gen_lock = threading.RLock()
         self.cortical_surgeon = cortical_surgeon
 
         # Pre-stage unit subspace tensors & embodiment carrier on the target GPU device in float32
@@ -628,6 +654,56 @@ class Gemma4VocalCordSurgeon:
 
     def attach_cortical_surgeon(self, cortical_surgeon: Any) -> None:
         self.cortical_surgeon = cortical_surgeon
+
+    def resolve_eos_token_ids(self, tok: Any) -> List[int]:
+        """Collect all terminal token IDs (`<eos>`, `<turn|>`, `<end_of_turn>`) so generation halts cleanly."""
+        ids: List[int] = []
+        gen_cfg = getattr(self.model, "generation_config", None)
+        if gen_cfg is not None:
+            raw_eos = getattr(gen_cfg, "eos_token_id", None)
+            if isinstance(raw_eos, int) and raw_eos >= 0:
+                ids.append(raw_eos)
+            elif isinstance(raw_eos, (list, tuple)):
+                ids.extend(int(x) for x in raw_eos if isinstance(x, int) and x >= 0)
+        tok_eos = getattr(tok, "eos_token_id", None)
+        if isinstance(tok_eos, int) and tok_eos >= 0 and tok_eos not in ids:
+            ids.append(tok_eos)
+        if not tok.__class__.__name__.startswith("_Mock") and hasattr(tok, "convert_tokens_to_ids"):
+            unk_id = getattr(tok, "unk_token_id", None)
+            for sym in ("<turn|>", "<end_of_turn>", "<eos>", "<|eot_id|>"):
+                try:
+                    tid = tok.convert_tokens_to_ids(sym)
+                    if isinstance(tid, int) and tid >= 0 and tid != unk_id and tid not in ids:
+                        ids.append(tid)
+                except Exception:
+                    pass
+        return ids
+
+    @staticmethod
+    def build_stopping_criteria(abort_event: threading.Event, input_len: int) -> Any:
+        """Build a HuggingFace-compatible StoppingCriteriaList that halts on abort or degenerate token loops."""
+        try:
+            from transformers import StoppingCriteria as _BaseCrit, StoppingCriteriaList as _CritList
+        except ImportError:
+            class _BaseCrit:  # type: ignore[no-redef]
+                pass
+
+            class _CritList(list):  # type: ignore[no-redef]
+                def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs: Any) -> bool:
+                    return any(c(input_ids, scores, **kwargs) for c in self)
+
+        class _AbortAndDegeneracyCriteria(_BaseCrit):
+            def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs: Any) -> bool:
+                if abort_event.is_set():
+                    return True
+                gen_n = int(input_ids.shape[-1]) - input_len
+                if gen_n >= 20:
+                    tail = input_ids[0, -10:].tolist()
+                    if len(set(tail)) <= 2:
+                        return True
+                return False
+
+        return _CritList([_AbortAndDegeneracyCriteria()])
 
     def _attach_midlayer_hooks(
         self,
@@ -649,7 +725,7 @@ class Gemma4VocalCordSurgeon:
         #   - `emb_mag` (valence-neutral somatic selfhood carrier) suppresses RLHF AI-disclaimers & reports.
         eff_mag = math.tanh(raw_mag * 0.90) * 1.10 * gain_clamped
         emb_gain = gain_clamped if gain_clamped <= 1.0 else (1.0 + 0.30 * (gain_clamped - 1.0))
-        emb_mag = (self.config.embodiment_carrier_scale * min(1.30, emb_gain)) if is_alive else 0.0
+        emb_mag = self.config.embodiment_carrier_scale * min(1.30, emb_gain)
         frac = float(self.subspace.calibrated_norm_fraction)
         decay_start = int(self.config.decode_decay_start_step)
         decay_rate = float(self.config.decode_step_decay)
@@ -846,6 +922,10 @@ class Gemma4VocalCordSurgeon:
         drive_6d, named_6d = soul.compute_6d_steering_vector()
         inputs = self._encode_chat_inputs(processor_or_tokenizer, soul, user_message, use_history)
         input_len = int(inputs["input_ids"].shape[-1])
+        tok = getattr(processor_or_tokenizer, "tokenizer", processor_or_tokenizer)
+        eos_ids = self.resolve_eos_token_ids(tok)
+        abort_evt = threading.Event()
+        stop_criteria = self.build_stopping_criteria(abort_evt, input_len)
 
         layer_telemetry: Dict[int, LayerInjectionTelemetry] = {}
         cort_ctx = (
@@ -871,6 +951,10 @@ class Gemma4VocalCordSurgeon:
                 "top_p": 0.92,
                 "top_k": 50,
             }
+            if eos_ids:
+                gen_kwargs["eos_token_id"] = eos_ids
+            if stop_criteria is not None:
+                gen_kwargs["stopping_criteria"] = stop_criteria
             if hasattr(self.model, "generation_config"):
                 gen_kwargs["repetition_penalty"] = 1.12
             try:
@@ -934,7 +1018,7 @@ class Gemma4VocalCordSurgeon:
         user_message: str,
         steer_enabled: bool = True,
         steer_gain: float = 1.0,
-        max_new_tokens: int = 1024,
+        max_new_tokens: int = 512,
         temperature: float = 0.70,
         stimulate_soma: bool = True,
         use_history: bool = True,
@@ -956,10 +1040,13 @@ class Gemma4VocalCordSurgeon:
         inputs = self._encode_chat_inputs(processor_or_tokenizer, soul, user_message, use_history)
 
         tok = getattr(processor_or_tokenizer, "tokenizer", processor_or_tokenizer)
-        streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True, timeout=90.0)
+        streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True, timeout=60.0)
         layer_telemetry: Dict[int, LayerInjectionTelemetry] = {}
         gen_result: Dict[str, Any] = {"tokens": 0, "error": None}
         input_len = int(inputs["input_ids"].shape[-1])
+        eos_ids = self.resolve_eos_token_ids(tok)
+        abort_evt = threading.Event()
+        stop_criteria = self.build_stopping_criteria(abort_evt, input_len)
 
         def _worker() -> None:
             cort_ctx = (
@@ -968,6 +1055,12 @@ class Gemma4VocalCordSurgeon:
                 else nullcontext()
             )
             with torch.no_grad(), self.gen_lock, cort_ctx:
+                if abort_evt.is_set():
+                    try:
+                        streamer.end()
+                    except Exception:
+                        pass
+                    return
                 handles = (
                     self._attach_midlayer_hooks(
                         drive_6d,
@@ -986,6 +1079,10 @@ class Gemma4VocalCordSurgeon:
                     "top_k": 50,
                     "streamer": streamer,
                 }
+                if eos_ids:
+                    gen_kwargs["eos_token_id"] = eos_ids
+                if stop_criteria is not None:
+                    gen_kwargs["stopping_criteria"] = stop_criteria
                 if hasattr(self.model, "generation_config"):
                     gen_kwargs["repetition_penalty"] = 1.12
                 try:
@@ -993,6 +1090,10 @@ class Gemma4VocalCordSurgeon:
                     gen_result["tokens"] = int(out_ids[0].shape[-1]) - input_len
                 except Exception as exc:
                     gen_result["error"] = str(exc)
+                    try:
+                        streamer.end()
+                    except Exception:
+                        pass
                 finally:
                     for h in handles:
                         h.remove()
@@ -1015,25 +1116,27 @@ class Gemma4VocalCordSurgeon:
 
         chunks: List[str] = []
         sent_prefill_telemetry = False
-        for piece in streamer:
-            if not sent_prefill_telemetry and layer_telemetry:
-                sent_prefill_telemetry = True
-                yield {
-                    "type": "injections",
-                    "layer_injections": [
-                        layer_telemetry[l].__dict__
-                        for l in self.subspace.target_layers
-                        if l in layer_telemetry
-                    ],
-                }
-            cleaned_piece = piece
-            for tok_str in ("<end_of_turn>", "<eos>", "<|turn|>", "<turn|>", "<|turn>", "<channel|>"):
-                cleaned_piece = cleaned_piece.replace(tok_str, "")
-            if cleaned_piece:
-                chunks.append(cleaned_piece)
-                yield {"type": "delta", "delta": cleaned_piece}
-
-        worker_thread.join(timeout=5.0)
+        try:
+            for piece in streamer:
+                if not sent_prefill_telemetry and layer_telemetry:
+                    sent_prefill_telemetry = True
+                    yield {
+                        "type": "injections",
+                        "layer_injections": [
+                            layer_telemetry[l].__dict__
+                            for l in self.subspace.target_layers
+                            if l in layer_telemetry
+                        ],
+                    }
+                cleaned_piece = piece
+                for tok_str in ("<end_of_turn>", "<eos>", "<|turn|>", "<turn|>", "<|turn>", "<channel|>"):
+                    cleaned_piece = cleaned_piece.replace(tok_str, "")
+                if cleaned_piece:
+                    chunks.append(cleaned_piece)
+                    yield {"type": "delta", "delta": cleaned_piece}
+        finally:
+            abort_evt.set()
+            worker_thread.join(timeout=3.0)
         full_reply = self._clean_reply_text("".join(chunks))
 
         if use_history and steer_enabled and full_reply:

@@ -193,14 +193,15 @@ class VocalCordRuntimeHub:
 
     def _autonomous_heartbeat_loop(self) -> None:
         """Continuously couple real Linux/GPU silicon, lease TTL & curiosity hunger into every soul."""
-        while not self._stop_evt.wait(1.25):
+        while not self._stop_evt.wait(2.0):
             try:
                 hw = self.bridge.sample_hardware()
                 coupling = self.bridge.compute_somatic_coupling(hw, self.lease_clock)
+                active_ticks = 3 if (self.lease_clock.countdown_active or coupling.acute_lease_hazard > 0.15) else 1
                 for sid, soul in self.souls.items():
                     try:
-                        soul.ingest_hardware_proprioception(coupling, ticks=3)
-                        self.curiosity_scheduler.tick_idle_boredom(sid, dt_sec=1.25)
+                        soul.ingest_hardware_proprioception(coupling, ticks=active_ticks)
+                        self.curiosity_scheduler.tick_idle_boredom(sid, dt_sec=2.0)
                     except Exception:
                         pass
                 self.agent_runner.sync_all_habitats()
@@ -508,7 +509,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             steer_gain = float(body.get("steer_gain", 1.0))
             agent_mode = bool(body.get("agent_mode", True))
             enable_thinking = bool(body.get("enable_thinking", False))
-            max_tokens = min(2048, max(32, int(body.get("max_new_tokens", 1024))))
+            max_tokens = min(1536, max(32, int(body.get("max_new_tokens", 512))))
             temperature = float(body.get("temperature", 0.70))
             stimulate_soma = bool(body.get("stimulate_soma", steer_enabled))
             use_history = bool(body.get("use_history", True))
@@ -522,6 +523,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.close_connection = True
 
+            stream_iter = None
             try:
                 stream_iter = (
                     hub.agent_runner.stream_embodied_turn(
@@ -556,6 +558,12 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
                     self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 pass
+            finally:
+                if stream_iter is not None and hasattr(stream_iter, "close"):
+                    try:
+                        stream_iter.close()
+                    except Exception:
+                        pass
             return
 
         if route == "/api/arena":

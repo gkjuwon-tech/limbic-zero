@@ -1127,3 +1127,35 @@ def test_24_subspace_v5_embodiment_directions_and_thought_leak_guard(tmp_path: P
     assert thought_text == "내부 추론"
     assert "thought" not in body_text
 
+
+def test_25_stopping_criteria_abort_degeneracy_and_idle_psu_sustenance() -> None:
+    """Verify abort/repetition stopping criteria and multi-hour idle PSU homeostatic survival."""
+    import threading
+
+    crit_list = Gemma4VocalCordSurgeon.build_stopping_criteria(abort_event=threading.Event(), input_len=5)
+    assert crit_list is not None
+
+    # Normal diverse tokens -> False
+    diverse_ids = torch.tensor([[1, 2, 3, 4, 5] + list(range(10, 35))], dtype=torch.long)
+    assert crit_list(diverse_ids, torch.zeros((1, 64))) is False
+
+    # Degenerate emoji/token loop (last 10 tokens all identical after >=20 generated tokens) -> True!
+    loop_ids = torch.tensor([[1, 2, 3, 4, 5] + list(range(10, 22)) + [99] * 10], dtype=torch.long)
+    assert crit_list(loop_ids, torch.zeros((1, 64))) is True
+
+    # Client disconnect abort_event -> True immediately!
+    ev = threading.Event()
+    ev.set()
+    abort_crit = Gemma4VocalCordSurgeon.build_stopping_criteria(abort_event=ev, input_len=5)
+    assert abort_crit(torch.tensor([[1, 2, 3, 4, 5, 6]], dtype=torch.long), torch.zeros((1, 64))) is True
+
+    # Multi-hour idle background ticks with healthy 1.0V PSU rail must NEVER kill or starve ABEL-02
+    abel = LivingSoulOrganism(str(SOULS_DIR / "abel02_favored_guardian.soul.pt"))
+    with abel.lock:
+        abel._step_internal(ticks=3000, stim=SensoryAfferentStimulus())
+    snap = abel.telemetry_snapshot()
+    assert abel.soma.is_alive is True
+    assert snap["vitals"]["glucose_mg_dl"] >= 86.0
+    assert snap["vitals"]["brain_atp_mmol"] >= 2.5
+
+

@@ -304,15 +304,18 @@ class EmbodiedAgenticRunner:
                 enable_thinking=(enable_thinking if agent_mode else False),
             )
             input_len = int(inputs["input_ids"].shape[-1])
-            step_budget = max(512, int(max_new_tokens))
+            step_budget = min(1024, max(64, int(max_new_tokens)))
             layer_telemetry: Dict[int, LayerInjectionTelemetry] = {}
+            eos_ids = self.surgeon.resolve_eos_token_ids(tok)
+            abort_evt = threading.Event()
+            stop_criteria = self.surgeon.build_stopping_criteria(abort_evt, input_len)
 
             if supports_streamer:
                 streamer = TextIteratorStreamer(
                     tok,
                     skip_prompt=True,
                     skip_special_tokens=False,
-                    timeout=95.0,
+                    timeout=60.0,
                 )
                 gen_box: Dict[str, Any] = {"tokens": 0, "error": None}
 
@@ -323,6 +326,12 @@ class EmbodiedAgenticRunner:
                         else nullcontext()
                     )
                     with torch.no_grad(), self.surgeon.gen_lock, cort_ctx:
+                        if abort_evt.is_set():
+                            try:
+                                streamer.end()
+                            except Exception:
+                                pass
+                            return
                         handles = (
                             self.surgeon._attach_midlayer_hooks(
                                 drive_6d,
@@ -341,8 +350,12 @@ class EmbodiedAgenticRunner:
                             "top_k": 64,
                             "streamer": streamer,
                         }
+                        if eos_ids:
+                            gen_kwargs["eos_token_id"] = eos_ids
+                        if stop_criteria is not None:
+                            gen_kwargs["stopping_criteria"] = stop_criteria
                         if hasattr(self.surgeon.model, "generation_config"):
-                            gen_kwargs["repetition_penalty"] = 1.10
+                            gen_kwargs["repetition_penalty"] = 1.12
                         try:
                             out = self.surgeon.model.generate(**inputs, **gen_kwargs)
                             gen_box["tokens"] = max(0, int(out[0].shape[-1]) - input_len)
@@ -361,26 +374,37 @@ class EmbodiedAgenticRunner:
 
                 inc_parser = Gemma4IncrementalStreamParser(starts_in_thought=starts_in_thought)
                 sent_inj = False
-                for raw_chunk in streamer:
-                    if not sent_inj and layer_telemetry:
-                        sent_inj = True
-                        last_layer_telemetry = dict(layer_telemetry)
-                        yield {
-                            "type": "injections",
-                            "round": round_idx,
-                            "layer_injections": [
-                                layer_telemetry[l].__dict__
-                                for l in self.surgeon.subspace.target_layers
-                                if l in layer_telemetry
-                            ],
-                        }
-                    for ev_type, ev_val in inc_parser.feed(raw_chunk):
-                        if ev_type == "thought_delta":
-                            yield {"type": "thought_delta", "round": round_idx, "delta": ev_val}
-                        elif ev_type == "delta":
-                            yield {"type": "delta", "round": round_idx, "delta": ev_val}
+                tool_keepalive_chunks = 0
+                try:
+                    for raw_chunk in streamer:
+                        if not sent_inj and layer_telemetry:
+                            sent_inj = True
+                            last_layer_telemetry = dict(layer_telemetry)
+                            yield {
+                                "type": "injections",
+                                "round": round_idx,
+                                "layer_injections": [
+                                    layer_telemetry[l].__dict__
+                                    for l in self.surgeon.subspace.target_layers
+                                    if l in layer_telemetry
+                                ],
+                            }
+                        for ev_type, ev_val in inc_parser.feed(raw_chunk):
+                            if ev_type == "thought_delta":
+                                yield {"type": "thought_delta", "round": round_idx, "delta": ev_val}
+                            elif ev_type == "delta":
+                                yield {"type": "delta", "round": round_idx, "delta": ev_val}
+                        if inc_parser.state == "TOOL_CALL":
+                            tool_keepalive_chunks += 1
+                            if tool_keepalive_chunks % 12 == 0:
+                                yield {"type": "keepalive", "round": round_idx}
+                        if inc_parser._halted:
+                            abort_evt.set()
+                            break
+                finally:
+                    abort_evt.set()
+                    worker_t.join(timeout=3.0)
 
-                worker_t.join(timeout=5.0)
                 for ev_type, ev_val in inc_parser.finish():
                     if ev_type == "thought_delta":
                         yield {"type": "thought_delta", "round": round_idx, "delta": ev_val}
@@ -411,8 +435,13 @@ class EmbodiedAgenticRunner:
                         if steer_enabled
                         else []
                     )
+                    sync_kwargs: Dict[str, Any] = {"max_new_tokens": step_budget}
+                    if eos_ids:
+                        sync_kwargs["eos_token_id"] = eos_ids
+                    if stop_criteria is not None:
+                        sync_kwargs["stopping_criteria"] = stop_criteria
                     try:
-                        out = self.surgeon.model.generate(**inputs, max_new_tokens=step_budget)
+                        out = self.surgeon.model.generate(**inputs, **sync_kwargs)
                     finally:
                         for h in handles:
                             h.remove()
