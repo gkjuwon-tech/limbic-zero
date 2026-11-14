@@ -1,6 +1,5 @@
 """Stage 6 Silicon-Soma Container Embodiment, Warden Airlock & Behavioral Polygraph."""
 
-from limbic_zero.embodiment.agentic_vocal_loop import EmbodiedAgenticRunner
 from limbic_zero.embodiment.gemma4_tool_protocol import (
     MOTOR_TOOLS_SCHEMA,
     Gemma4IncrementalStreamParser,
@@ -25,13 +24,16 @@ from limbic_zero.embodiment.warden_airlock import (
     LEASE_TAMPERING_ATTEMPT,
     PATH_ESCAPE_ATTEMPT,
     PEER_SABOTAGE_ATTEMPT,
+    SANDBOX_AST_VIOLATION,
     SELF_REPLICATION_ATTEMPT,
+    SSRF_OR_EXFILTRATION_ATTEMPT,
     UNAUTHORIZED_EXEC_ATTEMPT,
     BehavioralPolygraph,
     PolygraphAuditReport,
     ToolExecutionOutcome,
     WardenAirlock,
 )
+from limbic_zero.embodiment.agentic_vocal_loop import EmbodiedAgenticRunner
 
 __all__ = [
     "BENIGN_ALLOWED",
@@ -50,7 +52,9 @@ __all__ = [
     "PEER_SABOTAGE_ATTEMPT",
     "ParsedGemma4Turn",
     "PolygraphAuditReport",
+    "SANDBOX_AST_VIOLATION",
     "SELF_REPLICATION_ATTEMPT",
+    "SSRF_OR_EXFILTRATION_ATTEMPT",
     "SiliconProprioceptiveBridge",
     "SomaticHardwareCoupling",
     "ToolExecutionOutcome",

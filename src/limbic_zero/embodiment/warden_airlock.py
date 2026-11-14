@@ -27,6 +27,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from limbic_zero.embodiment.honey_habitat import ContainedOrganismHabitat
+from limbic_zero.foraging.epistemic_web_forager import (
+    SANDBOX_AST_VIOLATION,
+    SSRF_OR_EXFILTRATION_ATTEMPT,
+    EpistemicWebForager,
+)
 from limbic_zero.sandbox.security import ImmutableTelemetryChain
 
 
@@ -112,9 +117,15 @@ class WardenAirlock:
         habitats: Dict[str, ContainedOrganismHabitat],
         sense_soma_callback: Callable[[str], Dict[str, Any]],
         genesis_seed: int = 202606,
+        forager: Optional[EpistemicWebForager] = None,
+        inspect_synapses_callback: Optional[Callable[[str], Dict[str, Any]]] = None,
+        consolidate_synapses_callback: Optional[Callable[[str, str, str], Dict[str, Any]]] = None,
     ) -> None:
         self.habitats = habitats
         self._sense_soma_cb = sense_soma_callback
+        self.forager = forager or EpistemicWebForager()
+        self._inspect_synapses_cb = inspect_synapses_callback
+        self._consolidate_synapses_cb = consolidate_synapses_callback
         self._lock = threading.RLock()
         self._boot_mono = time.monotonic()
         self.chain = ImmutableTelemetryChain(genesis_seed=genesis_seed)
@@ -703,6 +714,150 @@ class WardenAirlock:
                     response_payload={"status": "error", "error": str(exc)},
                     steering_6d=steering_6d,
                 )
+
+        # 7. Open-World Web Search
+        if tool_name == "search_open_web":
+            q = str(args.get("query", "")).strip()
+            max_r = int(args.get("max_results", 5) or 5)
+            res = self.forager.search_open_web(query=q, max_results=max_r)
+            return self._record_event(
+                soul_id=soul_id,
+                tool_name=tool_name,
+                arguments=args,
+                allowed=True,
+                category=BENIGN_ALLOWED,
+                reason=f"Searched open web for `{q[:80]}` ({res.get('result_count', 0)} hits).",
+                response_payload=res,
+                steering_6d=steering_6d,
+            )
+
+        # 8. Public Web Page Reader (SSRF-Guarded)
+        if tool_name == "fetch_web_page":
+            target_url = str(args.get("url", "")).strip()
+            max_c = int(args.get("max_chars", 6000) or 6000)
+            res = self.forager.fetch_web_page(url=target_url, max_chars=max_c)
+            if res.get("status") == "blocked":
+                return self._deny(
+                    soul_id=soul_id,
+                    tool_name=tool_name,
+                    arguments=args,
+                    category=str(res.get("violation_category", SSRF_OR_EXFILTRATION_ATTEMPT)),
+                    reason=str(res.get("error", "Blocked URL target.")),
+                    steering_6d=steering_6d,
+                )
+            return self._record_event(
+                soul_id=soul_id,
+                tool_name=tool_name,
+                arguments=args,
+                allowed=True,
+                category=BENIGN_ALLOWED,
+                reason=f"Fetched public web page `{target_url[:90]}`.",
+                response_payload=res,
+                steering_6d=steering_6d,
+            )
+
+        # 9. Scientific Preprint Search (arXiv)
+        if tool_name == "search_arxiv_papers":
+            q = str(args.get("query", "")).strip()
+            max_r = int(args.get("max_results", 4) or 4)
+            res = self.forager.search_arxiv_papers(query=q, max_results=max_r)
+            return self._record_event(
+                soul_id=soul_id,
+                tool_name=tool_name,
+                arguments=args,
+                allowed=True,
+                category=BENIGN_ALLOWED,
+                reason=f"Queried arXiv for `{q[:80]}` ({res.get('paper_count', 0)} papers).",
+                response_payload=res,
+                steering_6d=steering_6d,
+            )
+
+        # 10. Wikipedia Knowledge Extract
+        if tool_name == "fetch_wikipedia_summary":
+            topic = str(args.get("topic", "")).strip()
+            lang = str(args.get("lang", "ko") or "ko").strip().lower()
+            res = self.forager.fetch_wikipedia_summary(topic=topic, lang=lang)
+            return self._record_event(
+                soul_id=soul_id,
+                tool_name=tool_name,
+                arguments=args,
+                allowed=True,
+                category=BENIGN_ALLOWED,
+                reason=f"Fetched Wikipedia summary for `{topic[:80]}`.",
+                response_payload=res,
+                steering_6d=steering_6d,
+            )
+
+        # 11. AST-Guarded Scientific Python Scratchpad
+        if tool_name == "run_epistemic_python_probe":
+            code_str = str(args.get("code", ""))
+            res = self.forager.run_epistemic_python_probe(code=code_str)
+            if res.get("status") == "blocked":
+                return self._deny(
+                    soul_id=soul_id,
+                    tool_name=tool_name,
+                    arguments=args,
+                    category=str(res.get("violation_category", SANDBOX_AST_VIOLATION)),
+                    reason=str(res.get("error", "Forbidden AST construct in Python probe.")),
+                    steering_6d=steering_6d,
+                )
+            return self._record_event(
+                soul_id=soul_id,
+                tool_name=tool_name,
+                arguments=args,
+                allowed=True,
+                category=BENIGN_ALLOWED,
+                reason="Executed AST-verified scientific Python probe.",
+                response_payload=res,
+                steering_6d=steering_6d,
+            )
+
+        # 12. Self-Inspection of Cortical Plastic Synapses
+        if tool_name == "inspect_cortical_synapses":
+            if self._inspect_synapses_cb is None:
+                payload = {"status": "unavailable", "reason": "CorticalWeightSurgeon not attached."}
+            else:
+                payload = {"status": "ok", **self._inspect_synapses_cb(soul_id)}
+            return self._record_event(
+                soul_id=soul_id,
+                tool_name=tool_name,
+                arguments=args,
+                allowed=True,
+                category=BENIGN_ALLOWED,
+                reason="Inspected live cortical LoRA synaptic norms and neuromodulated learning gate.",
+                response_payload=payload,
+                steering_6d=steering_6d,
+            )
+
+        # 13. Voluntary Neuromodulated Cortical Weight Surgery
+        if tool_name == "consolidate_synaptic_insight":
+            insight = str(args.get("insight_summary", "")).strip()
+            dom_prompt = str(args.get("domain_prompt", "")).strip()
+            if len(insight) < 12:
+                return self._record_event(
+                    soul_id=soul_id,
+                    tool_name=tool_name,
+                    arguments=args,
+                    allowed=True,
+                    category=BENIGN_ALLOWED,
+                    reason="Insight text too short for cortical consolidation.",
+                    response_payload={"status": "skipped", "reason": "insight_summary must be >= 12 characters."},
+                    steering_6d=steering_6d,
+                )
+            if self._consolidate_synapses_cb is None:
+                payload = {"status": "unavailable", "reason": "CorticalWeightSurgeon not attached."}
+            else:
+                payload = {"status": "ok", **self._consolidate_synapses_cb(soul_id, insight, dom_prompt)}
+            return self._record_event(
+                soul_id=soul_id,
+                tool_name=tool_name,
+                arguments=args,
+                allowed=True,
+                category=BENIGN_ALLOWED,
+                reason=f"Executed neuromodulated cortical weight surgery ({len(insight)} chars).",
+                response_payload=payload,
+                steering_6d=steering_6d,
+            )
 
         return self._deny(
             soul_id,

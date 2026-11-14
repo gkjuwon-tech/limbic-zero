@@ -129,6 +129,149 @@ MOTOR_TOOLS_SCHEMA: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_open_web",
+            "description": "Search public web pages and encyclopedic indexes for `query` and return top titles, URLs, and snippets.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query string.",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of search results to return (1-8).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_web_page",
+            "description": "Fetch and extract readable plain text from a public HTTP/HTTPS `url`.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Public http:// or https:// URL to read.",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Maximum extracted text length in characters.",
+                    },
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_arxiv_papers",
+            "description": "Query the arXiv preprint database for scientific, mathematical, or technical papers matching `query`.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Scientific topic or keyword query.",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of papers to retrieve (1-6).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_wikipedia_summary",
+            "description": "Fetch encyclopedic article extract for `topic` from Wikipedia (`ko` or `en`).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Article title or concept name.",
+                    },
+                    "lang": {
+                        "type": "string",
+                        "description": "Language code ('ko' or 'en').",
+                    },
+                },
+                "required": ["topic"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_epistemic_python_probe",
+            "description": (
+                "Execute pure mathematical or scientific Python expressions in an isolated sandbox "
+                "(math, cmath, statistics, itertools, fractions, decimal, random, json) and return stdout."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Python code using print(...) or assigning RESULT.",
+                    }
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inspect_cortical_synapses",
+            "description": (
+                "Read live cortical low-rank synaptic norms (||Delta W||_F per layer), surgical step count, "
+                "and current neuromodulated plasticity learning rate."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "consolidate_synaptic_insight",
+            "description": (
+                "Run online cortical synaptic backpropagation on verified `insight_summary` "
+                "(optionally conditioned on `domain_prompt`) gated by current neuromodulatory plasticity."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "insight_summary": {
+                        "type": "string",
+                        "description": "Verified factual, mathematical, or structural insight to consolidate into cortical weights.",
+                    },
+                    "domain_prompt": {
+                        "type": "string",
+                        "description": "Optional question or problem context paired with the insight.",
+                    },
+                },
+                "required": ["insight_summary"],
+            },
+        },
+    },
 ]
 
 

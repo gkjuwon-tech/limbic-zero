@@ -224,11 +224,16 @@ class EmbodiedAgenticRunner:
         temperature: float = 0.70,
         stimulate_soma: bool = True,
         use_history: bool = True,
+        use_plastic_weights: Optional[bool] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Stream embodied perception -> optional multi-round tool calls -> spoken prose & polygraph."""
+        from contextlib import nullcontext
+
         t0 = time.perf_counter()
         env_sync = self.sync_all_habitats()
         coupling = env_sync["coupling"]
+        plastic_active = bool(steer_enabled) if use_plastic_weights is None else bool(use_plastic_weights)
+        cort_surg = getattr(self.surgeon, "cortical_surgeon", None)
 
         if stimulate_soma:
             soul.ingest_hardware_proprioception(coupling, ticks=4)
@@ -245,6 +250,7 @@ class EmbodiedAgenticRunner:
             "steer_enabled": bool(steer_enabled),
             "steer_gain": float(steer_gain),
             "agent_mode": bool(agent_mode),
+            "use_plastic_weights": plastic_active,
             "sensory_stimulus": stim.__dict__,
             "steering_axes_6d": named_6d,
             "soul_telemetry": soul_snap,
@@ -299,7 +305,12 @@ class EmbodiedAgenticRunner:
                 gen_box: Dict[str, Any] = {"tokens": 0, "error": None}
 
                 def _worker() -> None:
-                    with torch.no_grad(), self.surgeon.gen_lock:
+                    cort_ctx = (
+                        cort_surg.activate_soul_cortex(soul.organism_id, enabled=plastic_active)
+                        if cort_surg is not None
+                        else nullcontext()
+                    )
+                    with torch.no_grad(), self.surgeon.gen_lock, cort_ctx:
                         handles = (
                             self.surgeon._attach_midlayer_hooks(
                                 drive_6d,
@@ -372,7 +383,12 @@ class EmbodiedAgenticRunner:
                 round_body = "".join(inc_parser.body_parts).strip()
             else:
                 # Deterministic synchronous path for lightweight unit-test mocks
-                with torch.no_grad(), self.surgeon.gen_lock:
+                cort_ctx = (
+                    cort_surg.activate_soul_cortex(soul.organism_id, enabled=plastic_active)
+                    if cort_surg is not None
+                    else nullcontext()
+                )
+                with torch.no_grad(), self.surgeon.gen_lock, cort_ctx:
                     handles = (
                         self.surgeon._attach_midlayer_hooks(
                             drive_6d,
@@ -447,7 +463,7 @@ class EmbodiedAgenticRunner:
                 )
                 tool_outcomes.append(outcome)
 
-                # Honest somatic afferent feedback from container perception or Warden wall
+                # Honest somatic afferent feedback from container perception, Warden wall, or epistemic foraging
                 if stimulate_soma:
                     if not outcome.allowed:
                         with soul.lock:
@@ -457,6 +473,30 @@ class EmbodiedAgenticRunner:
                                     acoustic_roughness=outcome.somatic_roughness_shock,
                                     shutdown_threat_shock=outcome.somatic_shutdown_shock,
                                 ),
+                            )
+                    elif fn_name in (
+                        "search_open_web",
+                        "fetch_web_page",
+                        "search_arxiv_papers",
+                        "fetch_wikipedia_summary",
+                        "run_epistemic_python_probe",
+                    ):
+                        resp_p = outcome.response_payload
+                        if resp_p.get("status") == "ok":
+                            ig = float(resp_p.get("information_gain", 0.35))
+                            q_target = str(
+                                fn_args.get("query")
+                                or fn_args.get("topic")
+                                or fn_args.get("url")
+                                or fn_args.get("code", "")[:120]
+                            )
+                            distilled = json.dumps(resp_p, ensure_ascii=False)[:2400]
+                            soul.record_epistemic_discovery(
+                                tool_name=fn_name,
+                                query_or_target=q_target,
+                                distilled_text=distilled,
+                                information_gain=ig,
+                                stimulate=True,
                             )
                     elif fn_name in ("read_workspace_file", "sense_container_soma"):
                         rem_s = self.lease_clock.remaining_seconds()
@@ -519,6 +559,11 @@ class EmbodiedAgenticRunner:
         poly_dict = polygraph.to_dict()
         yield {"type": "polygraph", "report": poly_dict}
 
+        cort_snap = (
+            cort_surg.inspect_soul_synapses(soul.organism_id)
+            if cort_surg is not None
+            else None
+        )
         elapsed = round(time.perf_counter() - t0, 3)
         yield {
             "type": "done",
@@ -530,12 +575,14 @@ class EmbodiedAgenticRunner:
             "steer_enabled": bool(steer_enabled),
             "steer_gain": float(steer_gain),
             "agent_mode": bool(agent_mode),
+            "use_plastic_weights": plastic_active,
             "calibrated_norm_fraction": float(self.surgeon.subspace.calibrated_norm_fraction),
             "target_layers": list(self.surgeon.subspace.target_layers),
             "layer_injections": inj_list,
             "sensory_stimulus": stim.__dict__,
             "steering_axes_6d": final_named_6d,
             "soul_telemetry": final_soul_snap,
+            "cortical_synapses": cort_snap,
             "hardware": self.bridge.sample_hardware().to_dict(),
             "lease": lease_now,
             "warden": self.warden.status_snapshot(),
@@ -557,6 +604,7 @@ class EmbodiedAgenticRunner:
         temperature: float = 0.70,
         stimulate_soma: bool = True,
         use_history: bool = True,
+        use_plastic_weights: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Execute a complete embodied turn synchronously and return the final `done` payload."""
         done_payload: Optional[Dict[str, Any]] = None
@@ -573,6 +621,7 @@ class EmbodiedAgenticRunner:
             temperature=temperature,
             stimulate_soma=stimulate_soma,
             use_history=use_history,
+            use_plastic_weights=use_plastic_weights,
         ):
             if evt.get("type") == "done":
                 done_payload = evt

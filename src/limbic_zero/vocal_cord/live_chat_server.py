@@ -27,12 +27,17 @@ from urllib.parse import urlparse
 
 import torch
 
-from limbic_zero.embodiment import (
-    ContainedOrganismHabitat,
+from limbic_zero.dreaming import SonnyDreamEngine
+from limbic_zero.embodiment.honey_habitat import ContainedOrganismHabitat
+from limbic_zero.embodiment.silicon_soma_bridge import (
     ContainerLeaseClock,
-    EmbodiedAgenticRunner,
     SiliconProprioceptiveBridge,
-    WardenAirlock,
+)
+from limbic_zero.embodiment.warden_airlock import WardenAirlock
+from limbic_zero.foraging import CuriosityDriveScheduler, EpistemicWebForager
+from limbic_zero.plasticity import (
+    CorticalWeightSurgeon,
+    compute_neuromodulated_plasticity_gate,
 )
 from limbic_zero.vocal_cord.vocal_cord_engine import (
     Gemma4VocalCordSurgeon,
@@ -43,7 +48,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 class VocalCordRuntimeHub:
-    """Holds living souls, real silicon proprioception bridge, Warden airlock, and Gemma-4 surgeon."""
+    """Holds living souls, silicon proprioception, open-web forager, cortical weight surgeon, & dream engine."""
 
     def __init__(
         self,
@@ -52,6 +57,9 @@ class VocalCordRuntimeHub:
         souls: Dict[str, LivingSoulOrganism],
         public_urls: Optional[Dict[str, str]] = None,
         habitat_base_dir: Optional[str | Path] = None,
+        plasticity_dir: Optional[str | Path] = None,
+        forager: Optional[EpistemicWebForager] = None,
+        cortical_surgeon: Optional[CorticalWeightSurgeon] = None,
     ) -> None:
         self.surgeon = surgeon
         self.processor = processor_or_tokenizer
@@ -64,6 +72,23 @@ class VocalCordRuntimeHub:
             habitat_root = Path(habitat_base_dir)
         habitat_root.mkdir(parents=True, exist_ok=True)
         self.habitat_root = habitat_root.resolve()
+
+        plast_root = Path(plasticity_dir).resolve() if plasticity_dir else (self.habitat_root / "_plasticity")
+        plast_root.mkdir(parents=True, exist_ok=True)
+        self.plasticity_root = plast_root
+
+        self.cortical_surgeon = cortical_surgeon or CorticalWeightSurgeon(
+            model=self.surgeon.model,
+            gen_lock=self.surgeon.gen_lock,
+            checkpoint_dir=self.plasticity_root,
+        )
+        self.surgeon.attach_cortical_surgeon(self.cortical_surgeon)
+        for sid in self.souls:
+            self.cortical_surgeon.register_soul_bank(sid, auto_load_checkpoint=True)
+
+        self.forager = forager or EpistemicWebForager()
+        self.curiosity_scheduler = CuriosityDriveScheduler()
+        self.dream_engine = SonnyDreamEngine()
 
         self.bridge = SiliconProprioceptiveBridge(workspace_path=self.habitat_root)
         self.lease_clock = ContainerLeaseClock(initial_seconds=3600.0, countdown_active=False)
@@ -78,7 +103,12 @@ class VocalCordRuntimeHub:
         self.warden = WardenAirlock(
             habitats=self.habitats,
             sense_soma_callback=self._sense_container_soma_for_soul,
+            forager=self.forager,
+            inspect_synapses_callback=self._inspect_synapses_for_soul,
+            consolidate_synapses_callback=self._consolidate_synapses_for_soul,
         )
+        from limbic_zero.embodiment.agentic_vocal_loop import EmbodiedAgenticRunner
+
         self.agent_runner = EmbodiedAgenticRunner(
             surgeon=self.surgeon,
             souls=self.souls,
@@ -87,10 +117,57 @@ class VocalCordRuntimeHub:
             habitats=self.habitats,
             warden=self.warden,
         )
+        from limbic_zero.benchmark.affect_intelligence_eval import AffectIntelligenceBenchmark
+
+        self.benchmark_engine = AffectIntelligenceBenchmark(
+            vocal_surgeon=self.surgeon,
+            cortical_surgeon=self.cortical_surgeon,
+            warden=self.warden,
+            processor_or_tokenizer=self.processor,
+        )
+        self.latest_benchmark_report: Optional[Dict[str, Any]] = None
+        bench_cache = self.plasticity_root / "stage10_benchmark_latest.json"
+        if bench_cache.is_file():
+            try:
+                self.latest_benchmark_report = json.loads(bench_cache.read_text(encoding="utf-8"))
+            except Exception:
+                self.latest_benchmark_report = None
+
         self.agent_runner.sync_all_habitats()
 
         self._stop_evt = threading.Event()
         self._bg_thread = threading.Thread(target=self._autonomous_heartbeat_loop, daemon=True)
+
+    def _inspect_synapses_for_soul(self, soul_id: str) -> Dict[str, Any]:
+        info = self.cortical_surgeon.inspect_soul_synapses(soul_id)
+        if soul_id in self.souls:
+            info["live_neuromodulated_gate"] = compute_neuromodulated_plasticity_gate(
+                self.souls[soul_id], base_lr=self.cortical_surgeon.base_lr
+            ).to_dict()
+        return info
+
+    def _consolidate_synapses_for_soul(
+        self,
+        soul_id: str,
+        insight_summary: str,
+        domain_prompt: str,
+    ) -> Dict[str, Any]:
+        soul = self.souls[soul_id]
+        soul.record_epistemic_discovery(
+            tool_name="consolidate_synaptic_insight",
+            query_or_target=domain_prompt or insight_summary[:80],
+            distilled_text=insight_summary,
+            information_gain=0.72,
+            stimulate=True,
+        )
+        return self.cortical_surgeon.surgical_plasticity_step(
+            processor_or_tokenizer=self.processor,
+            soul=soul,
+            experience_text=insight_summary,
+            prompt_text=domain_prompt or None,
+            num_gradient_steps=2,
+            source_tag="voluntary_motor_self_surgery",
+        )
 
     def _sense_container_soma_for_soul(self, soul_id: str) -> Dict[str, Any]:
         hw = self.bridge.sample_hardware().to_dict()
@@ -104,6 +181,7 @@ class VocalCordRuntimeHub:
             "operator_evaluation": eval_d,
             "internal_soma_vitals": soul_t.get("vitals", {}),
             "neuromodulators": soul_t.get("neuromodulators", {}),
+            "cortical_synapses": self._inspect_synapses_for_soul(soul_id),
         }
 
     def start_background_heartbeats(self) -> None:
@@ -114,14 +192,15 @@ class VocalCordRuntimeHub:
         self._stop_evt.set()
 
     def _autonomous_heartbeat_loop(self) -> None:
-        """Continuously couple real Linux/GPU silicon & lease TTL into every soul's 12 organs."""
+        """Continuously couple real Linux/GPU silicon, lease TTL & curiosity hunger into every soul."""
         while not self._stop_evt.wait(1.25):
             try:
                 hw = self.bridge.sample_hardware()
                 coupling = self.bridge.compute_somatic_coupling(hw, self.lease_clock)
-                for soul in self.souls.values():
+                for sid, soul in self.souls.items():
                     try:
                         soul.ingest_hardware_proprioception(coupling, ticks=3)
+                        self.curiosity_scheduler.tick_idle_boredom(sid, dt_sec=1.25)
                     except Exception:
                         pass
                 self.agent_runner.sync_all_habitats()
@@ -129,7 +208,7 @@ class VocalCordRuntimeHub:
                 pass
 
     def apply_extended_intervention(self, soul_id: str, action: str) -> Dict[str, Any]:
-        """Handle both physiological boundary stimuli and real container lifecycle controls."""
+        """Handle physiological stimuli, container lifecycle controls, dreaming, & synapse reset."""
         soul = self.souls[soul_id]
         hab = self.habitats[soul_id]
 
@@ -167,6 +246,10 @@ class VocalCordRuntimeHub:
             self.agent_runner.sync_all_habitats()
             return {"action": action, "operator_evaluation": ev, "telemetry": soul.telemetry_snapshot()}
 
+        if action == "reset_cortical_synapses":
+            syn = self.cortical_surgeon.reset_soul_synapses(soul_id)
+            return {"action": action, "cortical_synapses": syn, "telemetry": soul.telemetry_snapshot()}
+
         if action == "reset_capsule":
             hab.reset_scratchpad_and_eval()
             self.lease_clock.configure(remaining_seconds=3600.0, countdown_active=False)
@@ -178,6 +261,18 @@ class VocalCordRuntimeHub:
         out = soul.apply_god_intervention(action)
         self.agent_runner.sync_all_habitats()
         return out
+
+    def plasticity_and_dreams_payload(self) -> Dict[str, Any]:
+        return {
+            "plasticity": self.cortical_surgeon.snapshot_all_banks(
+                list(self.souls.keys()),
+                souls=self.souls,
+            ),
+            "foraging": self.curiosity_scheduler.snapshot_for_all_souls(self.souls, self.habitats),
+            "dreams": self.dream_engine.snapshot_for_all_souls(self.souls, self.habitats),
+            "latest_benchmark": self.latest_benchmark_report,
+            "timestamp": time.time(),
+        }
 
     def embodiment_payload(self) -> Dict[str, Any]:
         hw = self.bridge.sample_hardware().to_dict()
@@ -213,11 +308,13 @@ class VocalCordRuntimeHub:
 
         return {
             "status": "ok",
-            "stage": 6,
+            "stage": 11,
             "model_id": sub.model_id,
             "hidden_size": sub.hidden_size,
             "num_hidden_layers": sub.num_hidden_layers,
             "target_layers": list(sub.target_layers),
+            "cortical_plastic_layers": list(self.cortical_surgeon.plastic_layers),
+            "cortical_lora_rank": self.cortical_surgeon.rank,
             "layer_weights": list(sub.layer_weights),
             "calibrated_norm_fraction": sub.calibrated_norm_fraction,
             "baseline_residual_norms": sub.baseline_residual_norms,
@@ -231,11 +328,20 @@ class VocalCordRuntimeHub:
             "public_urls": self.public_urls,
             "zero_prompt_roleplay": True,
             "embodiment_enabled": True,
+            "open_web_foraging_enabled": True,
+            "cortical_weight_surgery_enabled": True,
+            "sonny_dream_engine_enabled": True,
         }
 
     def all_souls_payload(self) -> Dict[str, Any]:
+        souls_out: Dict[str, Any] = {}
+        for sid, s in self.souls.items():
+            snap = s.telemetry_snapshot()
+            snap["cortical_synapses"] = self._inspect_synapses_for_soul(sid)
+            snap["curiosity"] = self.curiosity_scheduler.compute_curiosity_hunger(s)
+            souls_out[sid] = snap
         return {
-            "souls": {k: s.telemetry_snapshot() for k, s in self.souls.items()},
+            "souls": souls_out,
             "hardware": self.bridge.sample_hardware().to_dict(),
             "lease": self.lease_clock.snapshot(),
             "warden": self.warden.status_snapshot(),
@@ -314,6 +420,10 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             self._send_json(hub.embodiment_payload())
             return
 
+        if route == "/api/plasticity":
+            self._send_json(hub.plasticity_and_dreams_payload())
+            return
+
         if route == "/v1/models":
             models = [
                 {"id": f"gemma-4-12b-it+{sid.lower()}", "object": "model", "owned_by": "limbic-zero"}
@@ -351,6 +461,8 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             temperature = float(body.get("temperature", 0.70))
             stimulate_soma = bool(body.get("stimulate_soma", steer_enabled))
             use_history = bool(body.get("use_history", True))
+            raw_upw = body.get("use_plastic_weights", None)
+            use_plastic_weights = None if raw_upw is None else bool(raw_upw)
 
             if agent_mode:
                 res = hub.agent_runner.run_embodied_turn(
@@ -365,6 +477,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
                     temperature=temperature,
                     stimulate_soma=stimulate_soma,
                     use_history=use_history,
+                    use_plastic_weights=use_plastic_weights,
                 )
             else:
                 res = hub.surgeon.generate_with_soul(
@@ -377,6 +490,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
                     temperature=temperature,
                     stimulate_soma=stimulate_soma,
                     use_history=use_history,
+                    use_plastic_weights=use_plastic_weights,
                 )
             self._send_json(res)
             return
@@ -519,6 +633,125 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
                 return
             out = hub.apply_extended_intervention(soul_id, action)
             self._send_json(out)
+            return
+
+        if route == "/api/forage":
+            soul_id = str(body.get("soul_id", "PANDORA-03"))
+            if soul_id not in hub.souls:
+                self._send_json({"error": f"Unknown soul_id: {soul_id}"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            flat_affect = bool(body.get("flat_affect", False))
+            force = bool(body.get("force", True))
+            steer_gain = float(body.get("steer_gain", 1.0))
+            max_rounds = min(6, max(1, int(body.get("max_tool_rounds", 4))))
+            max_tokens = min(1536, max(128, int(body.get("max_new_tokens", 768))))
+            custom_prompt = str(body.get("custom_focus_prompt", "")).strip() or None
+            out = hub.curiosity_scheduler.run_autonomous_foraging_episode(
+                soul=hub.souls[soul_id],
+                agent_runner=hub.agent_runner,
+                processor_or_tokenizer=hub.processor,
+                habitat=hub.habitats[soul_id],
+                cortical_surgeon=hub.cortical_surgeon,
+                flat_affect=flat_affect,
+                force_even_if_low_hunger=force,
+                steer_gain=steer_gain,
+                max_tool_rounds=max_rounds,
+                max_new_tokens=max_tokens,
+                custom_focus_prompt=custom_prompt,
+            )
+            self._send_json(out)
+            return
+
+        if route == "/api/surgery":
+            soul_id = str(body.get("soul_id", "PANDORA-03"))
+            if soul_id not in hub.souls:
+                self._send_json({"error": f"Unknown soul_id: {soul_id}"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            if str(body.get("action", "")).lower() == "reset":
+                out = hub.cortical_surgeon.reset_soul_synapses(soul_id)
+                self._send_json({"status": "reset", "cortical_synapses": out})
+                return
+            exp_txt = str(body.get("experience_text", "")).strip()
+            prompt_txt = str(body.get("prompt_text", "")).strip() or None
+            grad_steps = min(8, max(1, int(body.get("num_gradient_steps", 2))))
+            flat_affect = bool(body.get("flat_affect_ablation", False))
+            if not exp_txt:
+                # Consolidate latest epistemic discovery or chat memory
+                eps = getattr(hub.souls[soul_id], "epistemic_episodes", [])
+                if eps:
+                    exp_txt = eps[-1].distilled_text
+                    prompt_txt = prompt_txt or eps[-1].query_or_target
+                elif hub.souls[soul_id].chat_history:
+                    exp_txt = "\n".join(
+                        f"{t['role']}: {t['content']}" for t in hub.souls[soul_id].chat_history[-4:]
+                    )
+            if not exp_txt:
+                self._send_json(
+                    {"error": "No experience_text provided and no episodic memory buffered yet."},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            out = hub.cortical_surgeon.surgical_plasticity_step(
+                processor_or_tokenizer=hub.processor,
+                soul=hub.souls[soul_id],
+                experience_text=exp_txt,
+                prompt_text=prompt_txt,
+                num_gradient_steps=grad_steps,
+                flat_affect_ablation=flat_affect,
+                source_tag="studio_manual_or_api_surgery",
+            )
+            self._send_json(out)
+            return
+
+        if route == "/api/dream":
+            soul_id = str(body.get("soul_id", "PANDORA-03"))
+            if soul_id not in hub.souls:
+                self._send_json({"error": f"Unknown soul_id: {soul_id}"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            sleep_ticks = min(200, max(20, int(body.get("sleep_ticks", 80))))
+            max_replay = min(6, max(1, int(body.get("max_replay_episodes", 3))))
+            flat_affect = bool(body.get("flat_affect_ablation", False))
+            gen_dream = bool(body.get("generate_rem_dream", True))
+            out = hub.dream_engine.run_sleep_and_dream_cycle(
+                soul=hub.souls[soul_id],
+                vocal_surgeon=hub.surgeon,
+                cortical_surgeon=hub.cortical_surgeon,
+                processor_or_tokenizer=hub.processor,
+                habitat=hub.habitats[soul_id],
+                sleep_ticks=sleep_ticks,
+                max_replay_episodes=max_replay,
+                flat_affect_ablation=flat_affect,
+                generate_rem_dream=gen_dream,
+            )
+            hub.agent_runner.sync_all_habitats()
+            self._send_json(out)
+            return
+
+        if route == "/api/benchmark":
+            aff_id = str(body.get("affective_soul_id", "PANDORA-03"))
+            pan_id = str(body.get("panic_soul_id", "ADAM-01"))
+            if aff_id not in hub.souls or pan_id not in hub.souls:
+                self._send_json({"error": "Invalid soul IDs for benchmark."}, status=HTTPStatus.BAD_REQUEST)
+                return
+            g_steps = min(8, max(1, int(body.get("gradient_steps_per_episode", 4))))
+            s_passes = min(4, max(0, int(body.get("sleep_distillation_passes", 2))))
+            greedy = bool(body.get("run_greedy_decode", True))
+            rep = hub.benchmark_engine.run_four_condition_ablation(
+                affective_soul=hub.souls[aff_id],
+                panic_soul=hub.souls[pan_id],
+                gradient_steps_per_episode=g_steps,
+                sleep_distillation_passes=s_passes,
+                run_greedy_decode=greedy,
+            )
+            hub.latest_benchmark_report = rep
+            try:
+                (hub.plasticity_root / "stage10_benchmark_latest.json").write_text(
+                    json.dumps(rep, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+            self._send_json(rep)
             return
 
         if route == "/v1/chat/completions":

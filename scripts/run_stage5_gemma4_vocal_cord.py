@@ -72,6 +72,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--public-url", type=str, default="")
     parser.add_argument("--habitat-dir", type=str, default="", help="Base directory for Stage 6 organism habitats")
+    parser.add_argument("--plasticity-dir", type=str, default="", help="Directory for Stage 8 cortical LoRA checkpoints")
     parser.add_argument("--enable-cloudflare", action="store_true", help="Launch cloudflared tunnel automatically")
     args = parser.parse_args()
 
@@ -187,6 +188,7 @@ def main() -> None:
         souls=souls,
         public_urls=pub_urls,
         habitat_base_dir=args.habitat_dir or None,
+        plasticity_dir=args.plasticity_dir or None,
     )
     hub.start_background_heartbeats()
     if args.enable_cloudflare:

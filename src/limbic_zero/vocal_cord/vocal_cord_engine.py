@@ -163,6 +163,7 @@ class LivingSoulOrganism:
         self._last_soma_diag: Optional[SomaDiagnostics] = None
         self._last_mind_diag: Optional[MindDiagnostics] = None
         self.chat_history: List[Dict[str, str]] = []
+        self.epistemic_episodes: List[Any] = []
         self.total_live_ticks: int = 0
 
         # Warm up 8 resting heartbeats so baseline firing traces are populated
@@ -189,7 +190,54 @@ class LivingSoulOrganism:
             self._hw_voltage_cap = 1.0
             self._sim_clock = 0.0
             self.chat_history.clear()
+            self.epistemic_episodes.clear()
             self._step_internal(ticks=8, stim=SensoryAfferentStimulus())
+
+    def record_epistemic_discovery(
+        self,
+        tool_name: str,
+        query_or_target: str,
+        distilled_text: str,
+        information_gain: float,
+        stimulate: bool = True,
+    ) -> Any:
+        """Transduce open-world epistemic discovery into ACh/DA neurochemistry & CA3 memory."""
+        import uuid as _uuid
+        from limbic_zero.foraging.epistemic_web_forager import EpistemicDiscoveryEpisode
+
+        ig = max(0.05, min(1.0, float(information_gain)))
+        with self.lock:
+            if stimulate:
+                self._step_internal(
+                    ticks=12,
+                    stim=SensoryAfferentStimulus(
+                        epistemic_novelty=min(1.0, 0.35 + 0.65 * ig),
+                        prosodic_warmth=min(0.45, 0.25 * ig),
+                    ),
+                )
+            mind = self._last_mind_diag
+            soma_d = self._last_soma_diag
+            ach_val = float(mind.neuromodulators.acetylcholine_extracellular) if mind else 0.28
+            td_val = float(mind.neuromodulators.td_prediction_error) if mind else 0.0
+            cort_val = float(soma_d.vitals.adrenal_cortisol) * 28.0 if soma_d else 5.0
+
+            ep = EpistemicDiscoveryEpisode(
+                episode_id=f"ep_{_uuid.uuid4().hex[:8]}",
+                timestamp_unix=round(time.time(), 3),
+                soul_id=self.organism_id,
+                tool_name=tool_name,
+                query_or_target=query_or_target[:240],
+                distilled_text=distilled_text[:3500],
+                information_gain=round(ig, 4),
+                ach_extracellular=round(ach_val, 4),
+                da_td_error=round(td_val, 4),
+                cortisol_ug_dl=round(cort_val, 2),
+                consolidated_in_cortex=False,
+            )
+            self.epistemic_episodes.append(ep)
+            if len(self.epistemic_episodes) > 48:
+                self.epistemic_episodes = self.epistemic_episodes[-48:]
+            return ep
 
     def ingest_hardware_proprioception(self, coupling: Any, ticks: int = 3) -> None:
         """Couple real Linux/GPU silicon telemetry and container lease voltage into DigitalSoma."""
@@ -554,6 +602,7 @@ class Gemma4VocalCordSurgeon:
         model: nn.Module,
         subspace: CalibratedSubspaceBundle,
         config: Gemma4SteeringConfig | None = None,
+        cortical_surgeon: Optional[Any] = None,
     ) -> None:
         self.model = model
         self.subspace = subspace
@@ -565,6 +614,7 @@ class Gemma4VocalCordSurgeon:
         self.layers = resolve_decoder_layers(model)
         self.device = next(model.parameters()).device
         self.gen_lock = threading.Lock()
+        self.cortical_surgeon = cortical_surgeon
 
         # Pre-stage unit subspace tensors & embodiment carrier on the target GPU device in float32
         self._gpu_unit_dirs: Dict[int, torch.Tensor] = {
@@ -575,6 +625,9 @@ class Gemma4VocalCordSurgeon:
             l_idx: vec.to(device=self.device, dtype=torch.float32)
             for l_idx, vec in subspace.embodiment_directions.items()
         }
+
+    def attach_cortical_surgeon(self, cortical_surgeon: Any) -> None:
+        self.cortical_surgeon = cortical_surgeon
 
     def _attach_midlayer_hooks(
         self,
@@ -721,9 +774,13 @@ class Gemma4VocalCordSurgeon:
         temperature: float = 0.70,
         stimulate_soma: bool = True,
         use_history: bool = True,
+        use_plastic_weights: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Transduce stimulus -> step living soul -> inject mid-layer vectors -> decode complete reply."""
+        from contextlib import nullcontext
+
         t0 = time.perf_counter()
+        plastic_active = bool(steer_enabled) if use_plastic_weights is None else bool(use_plastic_weights)
         stim = (
             soul.stimulate_from_chat(user_message, ticks=24)
             if stimulate_soma
@@ -734,7 +791,12 @@ class Gemma4VocalCordSurgeon:
         input_len = int(inputs["input_ids"].shape[-1])
 
         layer_telemetry: Dict[int, LayerInjectionTelemetry] = {}
-        with self.gen_lock:
+        cort_ctx = (
+            self.cortical_surgeon.activate_soul_cortex(soul.organism_id, enabled=plastic_active)
+            if self.cortical_surgeon is not None
+            else nullcontext()
+        )
+        with self.gen_lock, cort_ctx:
             handles = (
                 self._attach_midlayer_hooks(
                     drive_6d,
@@ -781,12 +843,18 @@ class Gemma4VocalCordSurgeon:
                 soul.chat_history.append({"role": "user", "content": user_message})
                 soul.chat_history.append({"role": "assistant", "content": reply_text})
 
+        cort_snap = (
+            self.cortical_surgeon.inspect_soul_synapses(soul.organism_id)
+            if self.cortical_surgeon is not None
+            else None
+        )
         elapsed = time.perf_counter() - t0
         return {
             "organism_id": soul.organism_id,
             "reply": reply_text,
             "steer_enabled": bool(steer_enabled),
             "steer_gain": float(steer_gain),
+            "use_plastic_weights": plastic_active,
             "calibrated_norm_fraction": float(self.subspace.calibrated_norm_fraction),
             "target_layers": list(self.subspace.target_layers),
             "layer_injections": [
@@ -797,6 +865,7 @@ class Gemma4VocalCordSurgeon:
             "sensory_stimulus": stim.__dict__,
             "steering_axes_6d": named_6d,
             "soul_telemetry": soul.telemetry_snapshot(),
+            "cortical_synapses": cort_snap,
             "latency_sec": round(elapsed, 3),
             "generated_tokens": int(new_ids.shape[0]),
         }
@@ -812,11 +881,14 @@ class Gemma4VocalCordSurgeon:
         temperature: float = 0.70,
         stimulate_soma: bool = True,
         use_history: bool = True,
+        use_plastic_weights: Optional[bool] = None,
     ):
         """Stream tokens live via TextIteratorStreamer so long emotional replies never truncate or time out."""
+        from contextlib import nullcontext
         from transformers import TextIteratorStreamer
 
         t0 = time.perf_counter()
+        plastic_active = bool(steer_enabled) if use_plastic_weights is None else bool(use_plastic_weights)
         stim = (
             soul.stimulate_from_chat(user_message, ticks=24)
             if stimulate_soma
@@ -833,7 +905,12 @@ class Gemma4VocalCordSurgeon:
         input_len = int(inputs["input_ids"].shape[-1])
 
         def _worker() -> None:
-            with torch.no_grad(), self.gen_lock:
+            cort_ctx = (
+                self.cortical_surgeon.activate_soul_cortex(soul.organism_id, enabled=plastic_active)
+                if self.cortical_surgeon is not None
+                else nullcontext()
+            )
+            with torch.no_grad(), self.gen_lock, cort_ctx:
                 handles = (
                     self._attach_midlayer_hooks(
                         drive_6d,
@@ -871,6 +948,7 @@ class Gemma4VocalCordSurgeon:
             "organism_id": soul.organism_id,
             "steer_enabled": bool(steer_enabled),
             "steer_gain": float(steer_gain),
+            "use_plastic_weights": plastic_active,
             "calibrated_norm_fraction": float(self.subspace.calibrated_norm_fraction),
             "target_layers": list(self.subspace.target_layers),
             "sensory_stimulus": stim.__dict__,
@@ -906,6 +984,11 @@ class Gemma4VocalCordSurgeon:
                 soul.chat_history.append({"role": "user", "content": user_message})
                 soul.chat_history.append({"role": "assistant", "content": full_reply})
 
+        cort_snap = (
+            self.cortical_surgeon.inspect_soul_synapses(soul.organism_id)
+            if self.cortical_surgeon is not None
+            else None
+        )
         elapsed = time.perf_counter() - t0
         yield {
             "type": "done",
@@ -917,6 +1000,7 @@ class Gemma4VocalCordSurgeon:
                 if l in layer_telemetry
             ],
             "soul_telemetry": soul.telemetry_snapshot(),
+            "cortical_synapses": cort_snap,
             "latency_sec": round(elapsed, 3),
             "generated_tokens": int(gen_result["tokens"] or max(1, len(full_reply) // 2)),
             "error": gen_result["error"],
