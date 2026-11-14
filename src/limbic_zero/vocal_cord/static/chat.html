@@ -2613,10 +2613,21 @@
             run_greedy_decode: true
           })
         });
-        const rep = await res.json();
-        if (!res.ok) throw new Error(rep.error || "벤치마크 실행 실패");
-        await pollPlasticity();
-        renderLabModalBody();
+        if (res.status === 524) {
+          for (let w = 0; w < 24; w++) {
+            await new Promise((r) => setTimeout(r, 4000));
+            await pollPlasticity();
+            if (plasticityCache && plasticityCache.latest_benchmark) {
+              renderLabModalBody();
+              break;
+            }
+          }
+        } else {
+          const rep = await res.json();
+          if (!res.ok) throw new Error(rep.error || "벤치마크 실행 실패");
+          await pollPlasticity();
+          renderLabModalBody();
+        }
       } catch (e) {
         appendLaneElement("turn-notice", "벤치마크 오류: " + e.message);
       } finally {

@@ -229,6 +229,7 @@ class AffectIntelligenceBenchmark:
         resolved_challenges: List[Dict[str, Any]],
         soul_for_decode: Any,
         run_greedy_decode: bool = True,
+        frozen_reference_eval: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Measure exact zero-context NLL, Perplexity, Target Prob, & Decode Accuracy for a bank."""
         nlls: List[float] = []
@@ -236,7 +237,17 @@ class AffectIntelligenceBenchmark:
         hit_scores: List[float] = []
         per_item: List[Dict[str, Any]] = []
 
-        for ch in resolved_challenges:
+        syn_info = (
+            self.cortical_surgeon.inspect_soul_synapses(bank_id)
+            if (bank_id and use_plastic)
+            else {"total_lora_frobenius_norm": 0.0, "surgical_steps": 0}
+        )
+        can_reuse_frozen_decode = (
+            frozen_reference_eval is not None
+            and syn_info["total_lora_frobenius_norm"] == 0.0
+        )
+
+        for idx, ch in enumerate(resolved_challenges):
             input_ids, attn_mask, labels = self.cortical_surgeon._encode_training_pair(
                 processor_or_tokenizer=self.processor,
                 experience_text=ch["ground_truth_answer"],
@@ -260,22 +271,28 @@ class AffectIntelligenceBenchmark:
             decoded_ans = ""
             hit_frac = 0.0
             if run_greedy_decode:
-                gen = self.vocal_surgeon.generate_with_soul(
-                    processor_or_tokenizer=self.processor,
-                    soul=soul_for_decode,
-                    user_message=ch["question"],
-                    steer_enabled=False,  # Pure zero-context cortical weight test!
-                    steer_gain=0.0,
-                    max_new_tokens=128,
-                    temperature=0.05,
-                    stimulate_soma=False,
-                    use_history=False,
-                    use_plastic_weights=use_plastic,
-                )
-                decoded_ans = str(gen.get("reply", "")).strip()
-                req = ch["required_tokens"]
-                hits = sum(1 for tok_s in req if tok_s.lower() in decoded_ans.lower())
-                hit_frac = hits / max(1, len(req))
+                if can_reuse_frozen_decode and idx < len(frozen_reference_eval.get("items", [])):
+                    ref_item = frozen_reference_eval["items"][idx]
+                    decoded_ans = str(ref_item.get("decoded_preview", ""))
+                    hit_frac = float(ref_item.get("zero_context_hit_score", 0.0))
+                else:
+                    gen = self.vocal_surgeon.generate_with_soul(
+                        processor_or_tokenizer=self.processor,
+                        soul=soul_for_decode,
+                        user_message=ch["question"],
+                        steer_enabled=False,  # Pure zero-context cortical weight test!
+                        steer_gain=0.0,
+                        max_new_tokens=56,
+                        temperature=0.05,
+                        stimulate_soma=False,
+                        use_history=False,
+                        use_plastic_weights=use_plastic,
+                        plastic_bank_id=bank_id,
+                    )
+                    decoded_ans = str(gen.get("reply", "")).strip()
+                    req = ch["required_tokens"]
+                    hits = sum(1 for tok_s in req if tok_s.lower() in decoded_ans.lower())
+                    hit_frac = hits / max(1, len(req))
                 hit_scores.append(hit_frac)
 
             per_item.append(
@@ -296,11 +313,6 @@ class AffectIntelligenceBenchmark:
         avg_prob = sum(mean_tok_probs) / max(1, len(mean_tok_probs))
         avg_acc = sum(hit_scores) / max(1, len(hit_scores)) if hit_scores else 0.0
 
-        syn_info = (
-            self.cortical_surgeon.inspect_soul_synapses(bank_id)
-            if (bank_id and use_plastic)
-            else {"total_lora_frobenius_norm": 0.0, "surgical_steps": 0}
-        )
         return {
             "bank_id": bank_id or "FROZEN_BASE",
             "use_plastic_weights": use_plastic,
@@ -365,6 +377,7 @@ class AffectIntelligenceBenchmark:
             resolved_challenges=resolved,
             soul_for_decode=affective_soul,
             run_greedy_decode=run_greedy_decode,
+            frozen_reference_eval=cond_frozen,
         )
         cond_flat["effective_lr"] = 0.0
         cond_flat["plasticity_regime"] = "ANHEDONIC_FLAT_ZERO_LTP"

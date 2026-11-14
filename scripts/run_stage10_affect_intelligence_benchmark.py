@@ -76,18 +76,30 @@ def main() -> None:
     )
 
     print("[STAGE 10] Running 4-Condition Affect -> Intelligence Ablation Benchmark...", flush=True)
-    bench_rep = _post_json(
-        args.endpoint,
-        "/api/benchmark",
-        {
-            "affective_soul_id": "PANDORA-03",
-            "panic_soul_id": "ADAM-01",
-            "gradient_steps_per_episode": 4,
-            "sleep_distillation_passes": 2,
-            "run_greedy_decode": True,
-        },
-        timeout=420.0,
-    )
+    try:
+        bench_rep = _post_json(
+            args.endpoint,
+            "/api/benchmark",
+            {
+                "affective_soul_id": "PANDORA-03",
+                "panic_soul_id": "ADAM-01",
+                "gradient_steps_per_episode": 4,
+                "sleep_distillation_passes": 2,
+                "run_greedy_decode": True,
+            },
+            timeout=420.0,
+        )
+    except Exception as exc:
+        print(f"[STAGE 10] Cloudflare edge timeout ({exc}); awaiting server completion via /api/plasticity...", flush=True)
+        bench_rep = None
+        for _ in range(40):
+            time.sleep(5.0)
+            ps = _get_json(args.endpoint, "/api/plasticity")
+            if ps.get("latest_benchmark") is not None:
+                bench_rep = ps["latest_benchmark"]
+                break
+        if bench_rep is None:
+            raise
     conds = bench_rep["conditions"]
     print(
         "[STAGE 10] Benchmark Complete!\n"

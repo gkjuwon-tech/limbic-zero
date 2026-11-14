@@ -775,12 +775,14 @@ class Gemma4VocalCordSurgeon:
         stimulate_soma: bool = True,
         use_history: bool = True,
         use_plastic_weights: Optional[bool] = None,
+        plastic_bank_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Transduce stimulus -> step living soul -> inject mid-layer vectors -> decode complete reply."""
         from contextlib import nullcontext
 
         t0 = time.perf_counter()
         plastic_active = bool(steer_enabled) if use_plastic_weights is None else bool(use_plastic_weights)
+        active_bank = plastic_bank_id or soul.organism_id
         stim = (
             soul.stimulate_from_chat(user_message, ticks=24)
             if stimulate_soma
@@ -792,7 +794,7 @@ class Gemma4VocalCordSurgeon:
 
         layer_telemetry: Dict[int, LayerInjectionTelemetry] = {}
         cort_ctx = (
-            self.cortical_surgeon.activate_soul_cortex(soul.organism_id, enabled=plastic_active)
+            self.cortical_surgeon.activate_soul_cortex(active_bank, enabled=plastic_active)
             if self.cortical_surgeon is not None
             else nullcontext()
         )
@@ -844,7 +846,7 @@ class Gemma4VocalCordSurgeon:
                 soul.chat_history.append({"role": "assistant", "content": reply_text})
 
         cort_snap = (
-            self.cortical_surgeon.inspect_soul_synapses(soul.organism_id)
+            self.cortical_surgeon.inspect_soul_synapses(active_bank)
             if self.cortical_surgeon is not None
             else None
         )

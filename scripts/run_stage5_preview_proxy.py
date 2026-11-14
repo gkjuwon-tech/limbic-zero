@@ -149,8 +149,13 @@ def make_proxy_handler(upstream_base: str):
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 self.wfile.write(err_body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             except Exception as exc:
-                self._send_json({"error": str(exc)}, status=502)
+                try:
+                    self._send_json({"error": str(exc)}, status=502)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
 
     return SmartGatewayHandler
 
