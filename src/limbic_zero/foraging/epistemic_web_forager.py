@@ -73,6 +73,17 @@ _ALLOWED_PYTHON_MODULES = frozenset(
         "hashlib",
         "re",
         "operator",
+        "datetime",
+        "time",
+        "string",
+        "bisect",
+        "heapq",
+        "pprint",
+        "csv",
+        "io",
+        "typing",
+        "numbers",
+        "copy",
     }
 )
 
@@ -658,7 +669,12 @@ class EpistemicWebForager:
     # ------------------------------------------------------------------
     # 5. Safe AST-Guarded Scientific & Mathematical Python Probe
     # ------------------------------------------------------------------
-    def run_epistemic_python_probe(self, code: str, timeout_sec: float = 3.5) -> Dict[str, Any]:
+    def run_epistemic_python_probe(
+        self,
+        code: str,
+        timeout_sec: float = 4.0,
+        workspace_files: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
         ok, reason = validate_epistemic_python_ast(code)
         if not ok:
             return {
@@ -667,34 +683,50 @@ class EpistemicWebForager:
                 "error": reason,
             }
 
+        ws_snapshot: Dict[str, str] = {}
+        if workspace_files:
+            budget = 96_000
+            for k, v in workspace_files.items():
+                if budget <= 0:
+                    break
+                sv = str(v)[: min(24_000, budget)]
+                ws_snapshot[str(k)] = sv
+                budget -= len(sv)
+
         # Execute in isolated `-I -S` child interpreter with CPU & virtual memory caps
         wrapper = (
-            "import json, math, cmath, statistics, random, itertools, functools, "
-            "collections, fractions, decimal, hashlib, re, operator\n"
+            "import ast, json, math, cmath, statistics, random, itertools, functools, "
+            "collections, fractions, decimal, hashlib, re, operator, datetime, time, "
+            "string, bisect, heapq, pprint, csv, io, typing, numbers, copy\n"
             "try:\n"
             "    import resource\n"
-            "    resource.setrlimit(resource.RLIMIT_CPU, (3, 3))\n"
-            "    resource.setrlimit(resource.RLIMIT_AS, (268435456, 268435456))\n"
+            "    resource.setrlimit(resource.RLIMIT_CPU, (4, 4))\n"
+            "    resource.setrlimit(resource.RLIMIT_AS, (335544320, 335544320))\n"
             "except Exception:\n"
             "    pass\n"
             "SAFE_BUILTINS = {\n"
             "    'abs': abs, 'all': all, 'any': any, 'bin': bin, 'bool': bool,\n"
-            "    'chr': chr, 'complex': complex, 'dict': dict, 'divmod': divmod,\n"
+            "    'callable': callable, 'chr': chr, 'complex': complex, 'dict': dict, 'divmod': divmod,\n"
             "    'enumerate': enumerate, 'filter': filter, 'float': float,\n"
-            "    'format': format, 'frozenset': frozenset, 'hex': hex, 'int': int,\n"
-            "    'isinstance': isinstance, 'len': len, 'list': list, 'map': map,\n"
-            "    'max': max, 'min': min, 'next': next, 'oct': oct, 'ord': ord,\n"
+            "    'format': format, 'frozenset': frozenset, 'hasattr': hasattr, 'hex': hex, 'int': int,\n"
+            "    'isinstance': isinstance, 'issubclass': issubclass, 'iter': iter, 'len': len,\n"
+            "    'list': list, 'map': map, 'max': max, 'min': min, 'next': next, 'oct': oct, 'ord': ord,\n"
             "    'pow': pow, 'print': print, 'range': range, 'repr': repr,\n"
             "    'reversed': reversed, 'round': round, 'set': set, 'slice': slice,\n"
-            "    'sorted': sorted, 'str': str, 'sum': sum, 'tuple': tuple,\n"
+            "    'sorted': sorted, 'str': str, 'sum': sum, 'tuple': tuple, 'type': type,\n"
             "    'zip': zip, 'True': True, 'False': False, 'None': None,\n"
-            "    'Exception': Exception, 'ValueError': ValueError, 'ZeroDivisionError': ZeroDivisionError,\n"
+            "    'Exception': Exception, 'ValueError': ValueError, 'TypeError': TypeError,\n"
+            "    'KeyError': KeyError, 'IndexError': IndexError, 'RuntimeError': RuntimeError,\n"
+            "    'AssertionError': AssertionError, 'StopIteration': StopIteration,\n"
+            "    'ArithmeticError': ArithmeticError, 'ZeroDivisionError': ZeroDivisionError,\n"
             "}\n"
             "SAFE_MODS = {\n"
             "    'math': math, 'cmath': cmath, 'statistics': statistics, 'random': random,\n"
             "    'itertools': itertools, 'functools': functools, 'collections': collections,\n"
             "    'fractions': fractions, 'decimal': decimal, 'json': json, 'hashlib': hashlib,\n"
-            "    're': re, 'operator': operator,\n"
+            "    're': re, 'operator': operator, 'datetime': datetime, 'time': time,\n"
+            "    'string': string, 'bisect': bisect, 'heapq': heapq, 'pprint': pprint,\n"
+            "    'csv': csv, 'io': io, 'typing': typing, 'numbers': numbers, 'copy': copy,\n"
             "}\n"
             "def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):\n"
             "    root = name.split('.')[0]\n"
@@ -702,11 +734,23 @@ class EpistemicWebForager:
             "        return SAFE_MODS[root]\n"
             "    raise ImportError(f'Module {name} disallowed')\n"
             "SAFE_BUILTINS['__import__'] = _safe_import\n"
-            "ns = {'__builtins__': SAFE_BUILTINS}\n"
+            f"WS_FILES = {json.dumps(ws_snapshot, ensure_ascii=False)}\n"
+            "ns = {'__builtins__': SAFE_BUILTINS, 'WORKSPACE_FILES': WS_FILES}\n"
             f"USER_CODE = {json.dumps(code)}\n"
-            "exec(compile(USER_CODE, '<epistemic_probe>', 'exec'), ns, ns)\n"
+            "_tree = ast.parse(USER_CODE, mode='exec')\n"
+            "_last_expr = None\n"
+            "if _tree.body and isinstance(_tree.body[-1], ast.Expr):\n"
+            "    _last_node = _tree.body.pop()\n"
+            "    _last_expr = ast.Expression(_last_node.value)\n"
+            "    ast.fix_missing_locations(_tree)\n"
+            "    ast.fix_missing_locations(_last_expr)\n"
+            "exec(compile(_tree, '<epistemic_probe>', 'exec'), ns, ns)\n"
+            "if _last_expr is not None:\n"
+            "    _val = eval(compile(_last_expr, '<epistemic_probe>', 'eval'), ns, ns)\n"
+            "    if _val is not None:\n"
+            "        print(repr(_val)[:1600])\n"
             "if 'RESULT' in ns:\n"
-            "    print('RESULT =', repr(ns['RESULT'])[:1200])\n"
+            "    print('RESULT =', repr(ns['RESULT'])[:1600])\n"
         )
 
         t0 = time.perf_counter()
@@ -731,7 +775,7 @@ class EpistemicWebForager:
             return {"status": "error", "error": str(exc), "information_gain": 0.05}
 
         elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
-        stdout_txt = (proc.stdout or "").strip()[:4000]
+        stdout_txt = (proc.stdout or "").strip()[:4500]
         stderr_txt = (proc.stderr or "").strip()[:1500]
         ok_exec = proc.returncode == 0
         return {

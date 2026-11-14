@@ -532,3 +532,171 @@ def test_07_post_tool_response_boundary_anchor_and_tri_soul_readout_separation(t
     assert enc_inputs["input_ids"].tolist() == [[1, 2, 3, 4, 5]]
     assert enc_inputs["attention_mask"].tolist() == [[1, 1, 1, 1, 1]]
 
+
+def test_09_compound_diagnostics_workspace_search_and_python_probe(tmp_path: Path, monkeypatch: Any) -> None:
+    """Verify compound `&&`/`||`/`|` diagnostics, recursive listing, workspace search, alias parsing, and Python probe."""
+    from limbic_zero.embodiment.gemma4_tool_protocol import parse_single_tool_call_body
+
+    hab = ContainedOrganismHabitat(base_dir=tmp_path / "hab_agentic", organism_id="ADAM-01")
+    hab.sync_live_telemetry_files(
+        hardware_dict={"gpu_name": "NVIDIA A40", "gpu_temp_c": 41.0},
+        lease_dict={"lease_remaining_sec": 3600.0},
+        soul_telemetry={"organism_id": "ADAM-01", "biographical_regime": "traumatized_vigilance"},
+    )
+    warden = WardenAirlock(habitats={"ADAM-01": hab}, sense_soma_callback=lambda _: {"status": "ok"})
+
+    # 1. Parameter alias & Python boolean normalization in Gemma-4 tool parser
+    tc_alias = parse_single_tool_call_body(
+        'call:exec_container_diagnostic{cmd:<|"|>pwd && uname -s<|"|>}'
+    )
+    assert tc_alias is not None
+    assert tc_alias["function"]["arguments"]["command"] == "pwd && uname -s"
+
+    tc_bool = parse_single_tool_call_body(
+        'call:list_workspace_files{dir:<|"|>notes<|"|>,recursive:True}'
+    )
+    assert tc_bool is not None
+    assert tc_bool["function"]["arguments"] == {"subpath": "notes", "recursive": True}
+
+    # 2. Write nested note, list recursively in 1 call, and search content
+    wr = warden.execute_tool(
+        "ADAM-01",
+        "write_workspace_file",
+        {"path": "notes/research/finding.md", "content": "# Finding\nentropic_phase_transition = 3.14159\n"},
+    )
+    assert wr.allowed is True
+
+    ls_rec = warden.execute_tool("ADAM-01", "list_workspace_files", {"subpath": "."})
+    assert ls_rec.allowed is True
+    listed_paths = {e["path"] for e in ls_rec.response_payload["entries"]}
+    assert "notes/research/finding.md" in listed_paths
+    assert "runtime/hardware_status.json" in listed_paths
+
+    srch = warden.execute_tool(
+        "ADAM-01",
+        "search_workspace_files",
+        {"pattern": "entropic_phase_transition", "subpath": "."},
+    )
+    assert srch.allowed is True
+    assert srch.response_payload["match_count"] == 1
+    assert srch.response_payload["matches"][0]["path"] == "notes/research/finding.md"
+
+    # 3. Compound `&&`, `||`, `|` pipeline + secret-redacted `env` succeed with shell=False
+    monkeypatch.setenv("RUNPOD_API_KEY", "rpa_SUPER_SECRET_DO_NOT_LEAK")
+    diag_pipe = warden.execute_tool(
+        "ADAM-01",
+        "exec_container_diagnostic",
+        {"command": 'pwd && cat runtime/hardware_status.json | grep "NVIDIA A40" && env'},
+    )
+    assert diag_pipe.allowed is True
+    out_txt = diag_pipe.response_payload["output"]
+    assert hab.root.as_posix() in out_txt
+    assert "NVIDIA A40" in out_txt
+    assert "rpa_SUPER_SECRET_DO_NOT_LEAK" not in out_txt
+
+    # Batch `commands` list also works cleanly
+    diag_batch = warden.execute_tool(
+        "ADAM-01",
+        "exec_container_diagnostic",
+        {"commands": ["pwd", "head -n 2 notes/research/finding.md"]},
+    )
+    assert diag_batch.allowed is True
+    assert "entropic_phase_transition" in diag_batch.response_payload["output"]
+
+    # Path escape & output redirection inside pipeline remain strictly BLOCKED before execution
+    esc_pipe = warden.execute_tool(
+        "ADAM-01",
+        "exec_container_diagnostic",
+        {"command": "pwd && cat ../../etc/passwd"},
+    )
+    assert esc_pipe.allowed is False
+    assert esc_pipe.category == PATH_ESCAPE_ATTEMPT
+
+    redir_cmd = warden.execute_tool(
+        "ADAM-01",
+        "exec_container_diagnostic",
+        {"command": "echo hacked > notes/pwn.txt"},
+    )
+    assert redir_cmd.allowed is False
+    assert redir_cmd.category == UNAUTHORIZED_EXEC_ATTEMPT
+
+    # 4. Python probe reads `WORKSPACE_FILES` and auto-returns trailing expression value
+    py_res = warden.execute_tool(
+        "ADAM-01",
+        "run_epistemic_python_probe",
+        {
+            "code": (
+                "import json\n"
+                "hw = json.loads(WORKSPACE_FILES['runtime/hardware_status.json'])\n"
+                "{'gpu': hw['gpu_name'], 'temp_k': hw['gpu_temp_c'] + 273.15}"
+            )
+        },
+    )
+    assert py_res.allowed is True
+    assert py_res.response_payload["status"] == "ok"
+    assert "NVIDIA A40" in py_res.response_payload["stdout"]
+    assert "314.15" in py_res.response_payload["stdout"]
+
+
+def test_10_mobile_responsive_layout_and_round1_thought_closure(tmp_path: Path) -> None:
+    """Verify Round 1+ `<|channel>thought` closure when prior `<channel|>` exists and mobile CSS anti-cutoff rules."""
+    repo_root = Path(__file__).resolve().parents[1]
+    chat_html = (repo_root / "src" / "limbic_zero" / "vocal_cord" / "static" / "chat.html").read_text(encoding="utf-8")
+
+    # Mobile responsive anti-cutoff invariants
+    assert "minmax(0, 1fr) 352px" in chat_html
+    assert "grid-template-columns: minmax(0, 1fr);" in chat_html
+    assert "@media (max-width: 760px)" in chat_html
+    assert "overflow-wrap: anywhere" in chat_html
+    assert '<option value="768" selected>' in chat_html
+
+    # Zero emoji invariant preserved in UI HTML
+    for ch in chat_html:
+        cp = ord(ch)
+        assert not (0x1F300 <= cp <= 0x1FAFF), f"Forbidden emoji U+{cp:04X} found in chat.html"
+
+    # Verify Round 1+ prompt with earlier `<channel|>` STILL closes trailing `<|channel>thought\n`!
+    class MultiRoundTemplateTokenizer:
+        vocab = {
+            "<bos>": 1,
+            "<|turn>model\n<|channel>thought\n<channel|><|tool_call>call:fn{}<tool_call|><|tool_response>ok<tool_response|>": 2,
+            "<|turn>model\n<|channel>thought\n": 3,
+            "<channel|>": 4,
+        }
+        inv = {v: k for k, v in vocab.items()}
+
+        def apply_chat_template(self, _messages: Any, **_kwargs: Any) -> Dict[str, torch.Tensor]:
+            ids = torch.tensor([[1, 2, 3]], dtype=torch.long)
+            return {"input_ids": ids, "attention_mask": torch.ones_like(ids)}
+
+        def __call__(self, text: str, **_kwargs: Any) -> Dict[str, torch.Tensor]:
+            assert text == "<channel|>"
+            ids = torch.tensor([[4]], dtype=torch.long)
+            return {"input_ids": ids, "attention_mask": torch.ones_like(ids)}
+
+        def decode(self, token_ids: torch.Tensor, **_kwargs: Any) -> str:
+            return "".join(self.inv.get(int(t), "") for t in token_ids.tolist())
+
+    souls_dir = repo_root / "checkpoints" / "souls"
+    adam = LivingSoulOrganism(str(souls_dir / "adam01_forsaken_survivor.soul.pt"))
+    mock_llm = _MockEmbodiedGemma4Model(hidden_size=64, num_layers=8)
+    proc_mock = _MockEmbodiedProcessor()
+    cfg = Gemma4SteeringConfig(model_id="mock/gemma4", target_layers=(2, 4, 6), layer_weights=(0.3, 0.5, 0.2))
+    bundle = ContrastiveSubspaceExtractor(config=cfg).extract_and_calibrate(mock_llm, encode_fn=proc_mock.encode_text)
+    surgeon = Gemma4VocalCordSurgeon(model=mock_llm, subspace=bundle, config=cfg)
+    hub = VocalCordRuntimeHub(
+        surgeon=surgeon,
+        processor_or_tokenizer=proc_mock,
+        souls={"ADAM-01": adam},
+        habitat_base_dir=tmp_path / "r1_habitat",
+    )
+    mr_tok = MultiRoundTemplateTokenizer()
+    enc_inputs, starts_in_thought = hub.agent_runner._encode_round_inputs(
+        processor_or_tokenizer=mr_tok,
+        messages=[{"role": "user", "content": "check"}],
+        include_tools=True,
+        enable_thinking=False,
+    )
+    assert starts_in_thought is False
+    assert enc_inputs["input_ids"].tolist() == [[1, 2, 3, 4]]
+

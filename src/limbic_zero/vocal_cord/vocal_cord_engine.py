@@ -680,8 +680,13 @@ class Gemma4VocalCordSurgeon:
         return ids
 
     @staticmethod
-    def build_stopping_criteria(abort_event: threading.Event, input_len: int) -> Any:
-        """Build a HuggingFace-compatible StoppingCriteriaList that halts on abort or degenerate token loops."""
+    def build_stopping_criteria(
+        abort_event: threading.Event,
+        input_len: int,
+        tok: Any = None,
+        tool_span_state: Optional[Dict[str, bool]] = None,
+    ) -> Any:
+        """Build a HuggingFace-compatible StoppingCriteriaList that halts on abort/loops and tracks `<|tool_call>` spans."""
         try:
             from transformers import StoppingCriteria as _BaseCrit, StoppingCriteriaList as _CritList
         except ImportError:
@@ -692,11 +697,35 @@ class Gemma4VocalCordSurgeon:
                 def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs: Any) -> bool:
                     return any(c(input_ids, scores, **kwargs) for c in self)
 
+        tool_open_id: Optional[int] = None
+        tool_close_id: Optional[int] = None
+        if (
+            tok is not None
+            and not tok.__class__.__name__.startswith("_Mock")
+            and hasattr(tok, "convert_tokens_to_ids")
+        ):
+            unk_id = getattr(tok, "unk_token_id", None)
+            try:
+                tid_o = tok.convert_tokens_to_ids("<|tool_call>")
+                if isinstance(tid_o, int) and tid_o >= 0 and tid_o != unk_id:
+                    tool_open_id = tid_o
+                tid_c = tok.convert_tokens_to_ids("<tool_call|>")
+                if isinstance(tid_c, int) and tid_c >= 0 and tid_c != unk_id:
+                    tool_close_id = tid_c
+            except Exception:
+                pass
+
         class _AbortAndDegeneracyCriteria(_BaseCrit):
             def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs: Any) -> bool:
                 if abort_event.is_set():
                     return True
                 gen_n = int(input_ids.shape[-1]) - input_len
+                if tool_span_state is not None and gen_n >= 1:
+                    last_tok = int(input_ids[0, -1].item())
+                    if tool_open_id is not None and last_tok == tool_open_id:
+                        tool_span_state["in_tool_call"] = True
+                    elif tool_close_id is not None and last_tok == tool_close_id:
+                        tool_span_state["in_tool_call"] = False
                 if gen_n >= 20:
                     tail = input_ids[0, -10:].tolist()
                     if len(set(tail)) <= 2:
@@ -711,8 +740,16 @@ class Gemma4VocalCordSurgeon:
         steer_gain: float,
         telemetry_out: Dict[int, LayerInjectionTelemetry],
         is_alive: bool = True,
+        motor_decision_mode: bool = False,
+        tool_span_state: Optional[Dict[str, bool]] = None,
     ) -> List[Any]:
-        """Attach norm-proportional residual addition hooks onto ``target_layers``."""
+        """Attach norm-proportional residual addition hooks onto ``target_layers``.
+
+        When ``motor_decision_mode=True`` (pre-tool decision round), prefill injects the soul's
+        6D limbic drive while attenuating the casual-monologue carrier so ``<|tool_call>`` fires
+        reliably, and attenuates residual perturbation inside ``<|tool_call>...<tool_call|>``
+        argument spans while keeping spoken prose at 100% emotional force.
+        """
         handles: List[Any] = []
         d_gpu = drive_6d.to(device=self.device, dtype=torch.float32)
         raw_mag = float(torch.linalg.vector_norm(d_gpu).item())
@@ -736,11 +773,24 @@ class Gemma4VocalCordSurgeon:
             u_mat = self._gpu_unit_dirs[l_idx]  # (6, D)
             comb = torch.matmul(d_gpu, u_mat)   # (D,)
             aff_dir = F.normalize(comb, p=2, dim=-1, eps=1e-8)
-            total_dir = eff_mag * aff_dir
+            vocal_dir = eff_mag * aff_dir
             if emb_mag > 0.0 and l_idx in self._gpu_emb_dirs:
-                total_dir = total_dir + emb_mag * self._gpu_emb_dirs[l_idx]
+                vocal_dir = vocal_dir + emb_mag * self._gpu_emb_dirs[l_idx]
 
-            def _make_layer_hook(layer_id: int, weight_l: float, t_dir: torch.Tensor, track_step: bool):
+            if motor_decision_mode:
+                prefill_dir = (0.58 * eff_mag) * aff_dir
+                if emb_mag > 0.0 and l_idx in self._gpu_emb_dirs:
+                    prefill_dir = prefill_dir + (0.15 * emb_mag) * self._gpu_emb_dirs[l_idx]
+            else:
+                prefill_dir = vocal_dir
+
+            def _make_layer_hook(
+                layer_id: int,
+                weight_l: float,
+                p_dir: torch.Tensor,
+                v_dir: torch.Tensor,
+                track_step: bool,
+            ):
                 def _hook(_mod: nn.Module, _inp: Any, output: Any) -> Any:
                     is_tuple = isinstance(output, tuple)
                     h: torch.Tensor = output[0] if is_tuple else output
@@ -754,7 +804,7 @@ class Gemma4VocalCordSurgeon:
                         ramp = torch.linspace(
                             0.55, 1.0, steps=tail, device=h.device, dtype=torch.float32
                         ).view(1, tail, 1)
-                        delta_f32 = (frac * weight_l) * ramp * tok_norms * t_dir.view(1, 1, -1)
+                        delta_f32 = (frac * weight_l) * ramp * tok_norms * p_dir.view(1, 1, -1)
                         h_mod[:, -tail:, :] = (seg + delta_f32).to(h.dtype)
 
                         res_n = float(tok_norms[0, -1, 0].item())
@@ -767,17 +817,21 @@ class Gemma4VocalCordSurgeon:
                             relative_pct=round(100.0 * del_n / max(1e-6, res_n), 2),
                         )
                     else:
-                        # Autoregressive KV-cached token step: 0.56x -> 0.34x sustain holds affective
-                        # prose while keeping Korean morphology and `<|tool_call>` syntax razor-sharp.
-                        if track_step:
-                            step_counter["decode_steps"] += 1
-                        cur_step = step_counter["decode_steps"]
-                        decay = 0.56 * (decay_rate ** max(0, cur_step - decay_start))
-                        decay = max(0.34, decay)
+                        # Autoregressive KV-cached token step:
+                        #   - Inside `<|tool_call>...<tool_call|>`: 0.08x keeps syntax razor-sharp.
+                        #   - Spoken prose: 0.56x -> 0.34x sustain holds full emotional persona.
+                        in_tc = bool(tool_span_state and tool_span_state.get("in_tool_call", False))
+                        if in_tc:
+                            decay = 0.08
+                        else:
+                            if track_step:
+                                step_counter["decode_steps"] += 1
+                            cur_step = step_counter["decode_steps"]
+                            decay = max(0.34, 0.56 * (decay_rate ** max(0, cur_step - decay_start)))
 
                         seg = h.float()
                         tok_norms = torch.linalg.vector_norm(seg, dim=-1, keepdim=True)
-                        delta_f32 = (frac * weight_l * decay) * tok_norms * t_dir.view(1, 1, -1)
+                        delta_f32 = (frac * weight_l * decay) * tok_norms * v_dir.view(1, 1, -1)
                         h_mod = (seg + delta_f32).to(h.dtype)
 
                     if is_tuple:
@@ -788,7 +842,7 @@ class Gemma4VocalCordSurgeon:
 
             handles.append(
                 self.layers[l_idx].register_forward_hook(
-                    _make_layer_hook(l_idx, l_weight, total_dir, track_step=(idx_pos == 0))
+                    _make_layer_hook(l_idx, l_weight, prefill_dir, vocal_dir, track_step=(idx_pos == 0))
                 )
             )
         return handles

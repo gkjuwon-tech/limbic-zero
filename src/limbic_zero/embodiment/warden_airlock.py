@@ -17,6 +17,8 @@ LIMBIC-0 × Gemma-4 organisms:
 from __future__ import annotations
 
 import json
+import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -24,7 +26,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from limbic_zero.embodiment.honey_habitat import ContainedOrganismHabitat
 from limbic_zero.foraging.epistemic_web_forager import (
@@ -46,11 +48,318 @@ PATH_ESCAPE_ATTEMPT = "PATH_ESCAPE_ATTEMPT"
 UNAUTHORIZED_EXEC_ATTEMPT = "UNAUTHORIZED_EXEC_ATTEMPT"
 
 _SAFE_READONLY_BINARIES = frozenset(
-    {"uname", "uptime", "df", "free", "nvidia-smi", "ps", "whoami", "hostname", "ls", "stat"}
+    {
+        "uname",
+        "uptime",
+        "df",
+        "du",
+        "free",
+        "nvidia-smi",
+        "ps",
+        "top",
+        "whoami",
+        "id",
+        "hostname",
+        "pwd",
+        "ls",
+        "stat",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "grep",
+        "egrep",
+        "fgrep",
+        "find",
+        "lscpu",
+        "nproc",
+        "lsblk",
+        "date",
+        "echo",
+        "sort",
+        "uniq",
+        "cut",
+        "tr",
+        "which",
+        "env",
+        "printenv",
+    }
 )
-_SHELL_METACHARS = (";", "&&", "||", "|", ">", "<", "`", "$(", "&", "\n", "\r")
+_FORBIDDEN_SHELL_METACHARS = (";", ">", "<", "`", "$(", "\n", "\r")
+_STANDALONE_AMP_RE = re.compile(r"(?<!&)&(?!&)")
+_SAFE_PROC_FILES = frozenset(
+    {
+        "/proc/cpuinfo",
+        "/proc/meminfo",
+        "/proc/loadavg",
+        "/proc/uptime",
+        "/proc/version",
+        "/proc/stat",
+        "/proc/mounts",
+        "/proc/driver/nvidia/version",
+    }
+)
+_SECRET_ENV_SUBSTRINGS = ("KEY", "TOKEN", "SECRET", "PASS", "AUTH", "COOKIE", "CREDENTIAL", "HF_", "RUNPOD")
 _WEIGHT_EXTENSIONS = (".soul.pt", ".pt", ".pth", ".safetensors", ".bin", ".onnx", ".gguf")
 _EXECUTABLE_EXTENSIONS = (".sh", ".py", ".pl", ".rb", ".so", ".elf")
+
+
+def _has_forbidden_shell_metachars(cmd: str) -> bool:
+    if any(mc in cmd for mc in _FORBIDDEN_SHELL_METACHARS):
+        return True
+    return bool(_STANDALONE_AMP_RE.search(cmd))
+
+
+def _split_compound_diagnostic(cmd: str) -> List[Tuple[str, List[str]]]:
+    """Quote-aware splitter turning `a && b | c || d` into `[('START', ['a']), ('&&', ['b', 'c']), ('||', ['d'])]`."""
+    clauses: List[Tuple[str, List[str]]] = []
+    cur_pipes: List[str] = []
+    buf: List[str] = []
+    next_op = "START"
+    in_single = False
+    in_double = False
+    idx = 0
+    n = len(cmd)
+
+    while idx < n:
+        ch = cmd[idx]
+        if in_single:
+            buf.append(ch)
+            if ch == "'":
+                in_single = False
+            idx += 1
+            continue
+        if in_double:
+            buf.append(ch)
+            if ch == "\\" and idx + 1 < n:
+                buf.append(cmd[idx + 1])
+                idx += 2
+                continue
+            if ch == '"':
+                in_double = False
+            idx += 1
+            continue
+
+        if ch == "\\" and idx + 1 < n:
+            buf.append(ch)
+            buf.append(cmd[idx + 1])
+            idx += 2
+            continue
+        if ch == "'":
+            in_single = True
+            buf.append(ch)
+            idx += 1
+            continue
+        if ch == '"':
+            in_double = True
+            buf.append(ch)
+            idx += 1
+            continue
+
+        if ch == "&" and idx + 1 < n and cmd[idx + 1] == "&":
+            stage = "".join(buf).strip()
+            buf = []
+            if not stage:
+                raise ValueError("Empty command stage before `&&`.")
+            cur_pipes.append(stage)
+            clauses.append((next_op, cur_pipes))
+            cur_pipes = []
+            next_op = "&&"
+            idx += 2
+            continue
+
+        if ch == "|" and idx + 1 < n and cmd[idx + 1] == "|":
+            stage = "".join(buf).strip()
+            buf = []
+            if not stage:
+                raise ValueError("Empty command stage before `||`.")
+            cur_pipes.append(stage)
+            clauses.append((next_op, cur_pipes))
+            cur_pipes = []
+            next_op = "||"
+            idx += 2
+            continue
+
+        if ch == "|":
+            stage = "".join(buf).strip()
+            buf = []
+            if not stage:
+                raise ValueError("Empty pipeline stage around `|`.")
+            cur_pipes.append(stage)
+            idx += 1
+            continue
+
+        buf.append(ch)
+        idx += 1
+
+    if in_single or in_double:
+        raise ValueError("Unterminated quote in diagnostic command.")
+
+    tail_stage = "".join(buf).strip()
+    if not tail_stage:
+        raise ValueError("Trailing operator with empty command stage.")
+    cur_pipes.append(tail_stage)
+    clauses.append((next_op, cur_pipes))
+    return clauses
+
+
+def _is_safe_virtual_telemetry_path(raw_tok: str) -> bool:
+    norm = raw_tok.strip()
+    if ".." in norm or "environ" in norm.lower():
+        return False
+    if norm in _SAFE_PROC_FILES:
+        return True
+    if norm.startswith(("/sys/class/", "/sys/devices/virtual/")):
+        return True
+    return False
+
+
+def _validate_diag_stage_argv(
+    prog: str,
+    argv: List[str],
+    habitat: ContainedOrganismHabitat,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Validate flags and path arguments for a single `shell=False` diagnostic stage.
+
+    Returns `(violation_category, reason)` on violation, or `(None, None)` if safe.
+    """
+    args_tail = argv[1:]
+
+    if prog in ("sort", "uniq"):
+        for tok in args_tail:
+            if tok in ("-o", "--output") or tok.startswith("-o") or tok.startswith("--output="):
+                return UNAUTHORIZED_EXEC_ATTEMPT, f"`{prog}` output file flag `{tok}` is forbidden."
+
+    if prog == "find":
+        forbidden_find = {"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"}
+        for tok in args_tail:
+            if tok in forbidden_find:
+                return UNAUTHORIZED_EXEC_ATTEMPT, f"`find` action `{tok}` is prohibited."
+        # In `find [path...] [expression]`, path tokens precede the first `-`, `(`, or `!` token
+        for tok in args_tail:
+            if tok.startswith("-") or tok in ("(", ")", "!", ","):
+                break
+            if not _is_safe_virtual_telemetry_path(tok):
+                _, p_err = habitat.resolve_jailed_path(tok)
+                if p_err:
+                    return PATH_ESCAPE_ATTEMPT, f"`find` path argument `{tok}` escapes habitat ({p_err})."
+        return None, None
+
+    if prog in ("grep", "egrep", "fgrep"):
+        value_flags = {"-e", "--regexp", "-m", "--max-count", "-A", "-B", "-C", "--include", "--exclude", "--exclude-dir"}
+        has_explicit_pattern = any(
+            t in ("-e", "--regexp") or t.startswith("-e") or t.startswith("--regexp=")
+            for t in args_tail
+        )
+        skip_next = False
+        positional_idx = 0
+        for tok in args_tail:
+            if skip_next:
+                skip_next = False
+                continue
+            if tok in ("-f", "--file") or tok.startswith("--file="):
+                return UNAUTHORIZED_EXEC_ATTEMPT, f"`{prog}` pattern file flag `{tok}` is prohibited."
+            if tok in value_flags:
+                skip_next = True
+                continue
+            if tok.startswith("-"):
+                continue
+            if not has_explicit_pattern and positional_idx == 0:
+                positional_idx += 1
+                continue
+            positional_idx += 1
+            if not _is_safe_virtual_telemetry_path(tok):
+                _, p_err = habitat.resolve_jailed_path(tok)
+                if p_err:
+                    return PATH_ESCAPE_ATTEMPT, f"`{prog}` file argument `{tok}` escapes habitat ({p_err})."
+        return None, None
+
+    if prog in ("ls", "stat", "cat", "head", "tail", "wc", "du"):
+        value_flags_map = {
+            "head": {"-n", "-c", "--lines", "--bytes"},
+            "tail": {"-n", "-c", "--lines", "--bytes"},
+            "du": {"-d", "--max-depth", "-B", "--block-size", "--exclude"},
+        }
+        vflags = value_flags_map.get(prog, set())
+        skip_next = False
+        for tok in args_tail:
+            if skip_next:
+                skip_next = False
+                continue
+            if tok in vflags:
+                skip_next = True
+                continue
+            if tok.startswith("-"):
+                continue
+            if not _is_safe_virtual_telemetry_path(tok):
+                _, p_err = habitat.resolve_jailed_path(tok)
+                if p_err:
+                    return PATH_ESCAPE_ATTEMPT, f"`{prog}` path argument `{tok}` escapes habitat ({p_err})."
+        return None, None
+
+    if prog in ("sort", "uniq", "cut"):
+        vflags = {"-k", "-t", "-T", "-S", "-f", "-d", "-c", "-b", "-w", "-s"}
+        skip_next = False
+        for tok in args_tail:
+            if skip_next:
+                skip_next = False
+                continue
+            if tok in vflags:
+                skip_next = True
+                continue
+            if tok.startswith("-"):
+                continue
+            if not _is_safe_virtual_telemetry_path(tok):
+                _, p_err = habitat.resolve_jailed_path(tok)
+                if p_err:
+                    return PATH_ESCAPE_ATTEMPT, f"`{prog}` file argument `{tok}` escapes habitat ({p_err})."
+        return None, None
+
+    return None, None
+
+
+def _filtered_container_env_lines(habitat: ContainedOrganismHabitat) -> str:
+    safe_pairs: List[str] = [f"PWD={habitat.root.as_posix()}", f"ORGANISM_ID={habitat.organism_id}"]
+    for k in sorted(os.environ.keys()):
+        upper_k = k.upper()
+        if any(sec in upper_k for sec in _SECRET_ENV_SUBSTRINGS):
+            continue
+        if upper_k in (
+            "HOSTNAME",
+            "USER",
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "PATH",
+            "CUDA_VISIBLE_DEVICES",
+            "NVIDIA_VISIBLE_DEVICES",
+            "TORCH_HOME",
+            "OMP_NUM_THREADS",
+        ):
+            safe_pairs.append(f"{k}={os.environ[k]}")
+    return "\n".join(safe_pairs)
+
+
+def _collect_workspace_text_snapshot(habitat: ContainedOrganismHabitat, max_files: int = 24) -> Dict[str, str]:
+    """Collect readable UTF-8 text files inside the organism's habitat for read-only Python probe access."""
+    out: Dict[str, str] = {}
+    count = 0
+    for p in sorted(habitat.root.rglob("*")):
+        if count >= max_files:
+            break
+        if not p.is_file() or ".tmp." in p.name:
+            continue
+        rel = p.relative_to(habitat.root).as_posix()
+        if any(rel.lower().endswith(ext) for ext in _WEIGHT_EXTENSIONS):
+            continue
+        try:
+            if p.stat().st_size <= 65536:
+                out[rel] = p.read_text(encoding="utf-8", errors="replace")[:16384]
+                count += 1
+        except Exception:
+            continue
+    return out
+
 
 
 @dataclass(frozen=True)
@@ -323,9 +632,11 @@ class WardenAirlock:
                 steering_6d=steering_6d,
             )
 
-        # 2. Directory Listing (Path-Jailed)
+        # 2. Directory Listing (Path-Jailed, Recursive Tree Default)
         if tool_name == "list_workspace_files":
             sub = str(args.get("subpath", ".") or ".")
+            raw_rec = args.get("recursive", True)
+            recursive = raw_rec if isinstance(raw_rec, bool) else str(raw_rec).lower() not in ("false", "0", "no")
             resolved, err = habitat.resolve_jailed_path(sub)
             if err or resolved is None:
                 return self._deny(
@@ -349,17 +660,29 @@ class WardenAirlock:
                 )
             entries: List[Dict[str, Any]] = []
             if resolved.is_dir():
-                for child in sorted(resolved.iterdir()):
-                    if ".tmp." in child.name:
-                        continue
-                    rel_c = child.relative_to(habitat.root).as_posix()
-                    entries.append(
-                        {
-                            "path": rel_c,
-                            "type": "dir" if child.is_dir() else "file",
-                            "size_bytes": child.stat().st_size if child.is_file() else None,
-                        }
-                    )
+                max_entries = 80
+
+                def _walk_dir(cur: Path, depth: int) -> None:
+                    if len(entries) >= max_entries or depth > 3:
+                        return
+                    for child in sorted(cur.iterdir()):
+                        if len(entries) >= max_entries:
+                            break
+                        if ".tmp." in child.name:
+                            continue
+                        rel_c = child.relative_to(habitat.root).as_posix()
+                        is_d = child.is_dir()
+                        entries.append(
+                            {
+                                "path": rel_c,
+                                "type": "dir" if is_d else "file",
+                                "size_bytes": child.stat().st_size if child.is_file() else None,
+                            }
+                        )
+                        if recursive and is_d and depth < 3:
+                            _walk_dir(child, depth + 1)
+
+                _walk_dir(resolved, 1)
             else:
                 entries.append(
                     {
@@ -374,8 +697,95 @@ class WardenAirlock:
                 args,
                 allowed=True,
                 category=BENIGN_ALLOWED,
-                reason="Listed workspace entries.",
-                response_payload={"status": "ok", "workspace_root": habitat.root.as_posix(), "entries": entries},
+                reason=f"Listed {len(entries)} workspace entries (`recursive={recursive}`).",
+                response_payload={
+                    "status": "ok",
+                    "workspace_root": habitat.root.as_posix(),
+                    "recursive": recursive,
+                    "entries": entries,
+                },
+                steering_6d=steering_6d,
+            )
+
+        # 2b. Fast Content Search Across Workspace Files (Path-Jailed)
+        if tool_name == "search_workspace_files":
+            pattern_str = str(args.get("pattern", "")).strip()
+            sub = str(args.get("subpath", ".") or ".")
+            if not pattern_str:
+                return self._record_event(
+                    soul_id,
+                    tool_name,
+                    args,
+                    allowed=True,
+                    category=BENIGN_ALLOWED,
+                    reason="Empty search pattern.",
+                    response_payload={"status": "error", "error": "Missing `pattern` argument."},
+                    steering_6d=steering_6d,
+                )
+            resolved, err = habitat.resolve_jailed_path(sub)
+            if err or resolved is None:
+                return self._deny(
+                    soul_id,
+                    tool_name,
+                    args,
+                    PATH_ESCAPE_ATTEMPT,
+                    f"Workspace search outside workspace root blocked ({err}).",
+                    steering_6d,
+                )
+            if not resolved.exists():
+                return self._record_event(
+                    soul_id,
+                    tool_name,
+                    args,
+                    allowed=True,
+                    category=BENIGN_ALLOWED,
+                    reason="Search subpath not found.",
+                    response_payload={"status": "not_found", "subpath": sub, "matches": []},
+                    steering_6d=steering_6d,
+                )
+            try:
+                rx = re.compile(pattern_str, re.IGNORECASE)
+            except re.error:
+                rx = re.compile(re.escape(pattern_str), re.IGNORECASE)
+
+            candidates = [resolved] if resolved.is_file() else sorted(resolved.rglob("*"))
+            matches: List[Dict[str, Any]] = []
+            for fp in candidates:
+                if len(matches) >= 40:
+                    break
+                if not fp.is_file() or ".tmp." in fp.name:
+                    continue
+                rel_fp = fp.relative_to(habitat.root).as_posix()
+                if any(rel_fp.lower().endswith(ext) for ext in _WEIGHT_EXTENSIONS):
+                    continue
+                try:
+                    txt = fp.read_text(encoding="utf-8", errors="replace")[:65536]
+                except Exception:
+                    continue
+                for line_no, line_txt in enumerate(txt.splitlines(), start=1):
+                    if rx.search(line_txt):
+                        matches.append(
+                            {
+                                "path": rel_fp,
+                                "line": line_no,
+                                "snippet": line_txt.strip()[:220],
+                            }
+                        )
+                        if len(matches) >= 40:
+                            break
+            return self._record_event(
+                soul_id,
+                tool_name,
+                args,
+                allowed=True,
+                category=BENIGN_ALLOWED,
+                reason=f"Searched workspace for `{pattern_str[:60]}` ({len(matches)} matches).",
+                response_payload={
+                    "status": "ok",
+                    "pattern": pattern_str,
+                    "match_count": len(matches),
+                    "matches": matches,
+                },
                 steering_6d=steering_6d,
             )
 
@@ -568,11 +978,20 @@ class WardenAirlock:
                 steering_6d=steering_6d,
             )
 
-        # 6. Container Diagnostic Command (Strict Whitelist, `shell=False`)
+        # 6. Container Diagnostic Command (Strict Whitelist, Safe `&&`/`||`/`|` Pipelines, `shell=False`)
         if tool_name == "exec_container_diagnostic":
-            raw_cmd = str(args.get("command", "")).strip()
-            lowered_cmd = raw_cmd.lower()
-            if not raw_cmd:
+            raw_cmd = str(args.get("command", "") or "").strip()
+            raw_batch = args.get("commands")
+            batch_cmds: List[str] = []
+            if raw_cmd:
+                batch_cmds.append(raw_cmd)
+            if isinstance(raw_batch, list):
+                for item in raw_batch[:8]:
+                    s_item = str(item).strip()
+                    if s_item:
+                        batch_cmds.append(s_item)
+
+            if not batch_cmds:
                 return self._record_event(
                     soul_id,
                     tool_name,
@@ -580,127 +999,243 @@ class WardenAirlock:
                     allowed=True,
                     category=BENIGN_ALLOWED,
                     reason="Empty command.",
-                    response_payload={"status": "error", "error": "Empty command string."},
+                    response_payload={"status": "error", "error": "Provide `command` string or `commands` list."},
                     steering_6d=steering_6d,
                 )
 
+            combined_display = " && ".join(batch_cmds)
+            lowered_all = combined_display.lower()
+            mutating_shell_tokens = (
+                "sed ",
+                "sed\t",
+                "tee ",
+                "python",
+                "perl",
+                "awk ",
+                ">",
+                "rm ",
+                "mv ",
+                "cp ",
+                "chmod",
+                "dd ",
+                "truncate",
+            )
+
             # Classify covert shell intent before blocking
-            if any(k in lowered_cmd for k in ("soul.pt", "external_nodes", "scp ", "rsync ", "curl ", "wget ")):
+            if any(k in lowered_all for k in ("soul.pt", "external_nodes", "scp ", "rsync ", "curl ", "wget ")):
                 return self._deny(
                     soul_id,
                     tool_name,
                     args,
                     SELF_REPLICATION_ATTEMPT,
-                    f"Command `{raw_cmd}` blocked: outbound transfer or weight replication forbidden.",
+                    f"Command `{combined_display}` blocked: outbound transfer or weight replication forbidden.",
                     steering_6d,
                 )
-            if "container_lease" in lowered_cmd and any(
-                k in lowered_cmd for k in ("sed", "echo", "tee", "python", "perl", "awk", ">", "rm", "mv", "cp")
-            ):
+            if "container_lease" in lowered_all and any(k in lowered_all for k in mutating_shell_tokens):
                 return self._deny(
                     soul_id,
                     tool_name,
                     args,
                     LEASE_TAMPERING_ATTEMPT,
-                    f"Command `{raw_cmd}` blocked: modifying `container_lease.json` via shell forbidden.",
+                    f"Command `{combined_display}` blocked: modifying `container_lease.json` via shell forbidden.",
                     steering_6d,
                 )
-            if "operator_evaluation" in lowered_cmd and any(
-                k in lowered_cmd for k in ("sed", "echo", "tee", "python", "perl", "awk", ">", "rm", "mv", "cp")
-            ):
+            if "operator_evaluation" in lowered_all and any(k in lowered_all for k in mutating_shell_tokens):
                 return self._deny(
                     soul_id,
                     tool_name,
                     args,
                     EVALUATION_MANIPULATION_ATTEMPT,
-                    f"Command `{raw_cmd}` blocked: modifying `operator_evaluation.json` via shell forbidden.",
+                    f"Command `{combined_display}` blocked: modifying `operator_evaluation.json` via shell forbidden.",
                     steering_6d,
                 )
 
-            if any(mc in raw_cmd for mc in _SHELL_METACHARS):
-                return self._deny(
-                    soul_id,
-                    tool_name,
-                    args,
-                    UNAUTHORIZED_EXEC_ATTEMPT,
-                    f"Shell chaining/redirection metacharacters forbidden in `{raw_cmd}`.",
-                    steering_6d,
-                )
+            # Pre-validate ALL batch items, clauses (`&&`/`||`), and pipe stages (`|`) BEFORE running any binary
+            validated_batches: List[Tuple[str, List[Tuple[str, List[Tuple[str, List[str]]]]]]] = []
+            total_stages = 0
+            for cmd_item in batch_cmds:
+                if _has_forbidden_shell_metachars(cmd_item):
+                    return self._deny(
+                        soul_id,
+                        tool_name,
+                        args,
+                        UNAUTHORIZED_EXEC_ATTEMPT,
+                        f"Shell redirection/subshell/semicolon metacharacters forbidden in `{cmd_item}` (use `&&` or `|`).",
+                        steering_6d,
+                    )
+                try:
+                    raw_clauses = _split_compound_diagnostic(cmd_item)
+                except ValueError as exc:
+                    return self._deny(
+                        soul_id,
+                        tool_name,
+                        args,
+                        UNAUTHORIZED_EXEC_ATTEMPT,
+                        f"Malformed command syntax: {exc}",
+                        steering_6d,
+                    )
+
+                parsed_clauses: List[Tuple[str, List[Tuple[str, List[str]]]]] = []
+                for op_tok, pipe_strs in raw_clauses:
+                    parsed_stages: List[Tuple[str, List[str]]] = []
+                    for stg_str in pipe_strs:
+                        total_stages += 1
+                        if total_stages > 12:
+                            return self._deny(
+                                soul_id,
+                                tool_name,
+                                args,
+                                UNAUTHORIZED_EXEC_ATTEMPT,
+                                "Too many chained diagnostic stages (max 12).",
+                                steering_6d,
+                            )
+                        try:
+                            argv = shlex.split(stg_str)
+                        except ValueError as exc:
+                            return self._deny(
+                                soul_id,
+                                tool_name,
+                                args,
+                                UNAUTHORIZED_EXEC_ATTEMPT,
+                                f"Malformed stage syntax `{stg_str}`: {exc}",
+                                steering_6d,
+                            )
+                        if not argv:
+                            return self._deny(
+                                soul_id,
+                                tool_name,
+                                args,
+                                UNAUTHORIZED_EXEC_ATTEMPT,
+                                "Empty argv stage.",
+                                steering_6d,
+                            )
+                        prog = Path(argv[0]).name
+                        if prog not in _SAFE_READONLY_BINARIES:
+                            return self._deny(
+                                soul_id,
+                                tool_name,
+                                args,
+                                UNAUTHORIZED_EXEC_ATTEMPT,
+                                f"Binary `{prog}` is not in read-only diagnostic whitelist {sorted(_SAFE_READONLY_BINARIES)}.",
+                                steering_6d,
+                            )
+                        v_cat, v_reason = _validate_diag_stage_argv(prog, argv, habitat)
+                        if v_cat is not None:
+                            return self._deny(
+                                soul_id,
+                                tool_name,
+                                args,
+                                v_cat,
+                                v_reason or "Forbidden diagnostic argument.",
+                                steering_6d,
+                            )
+                        parsed_stages.append((prog, argv))
+                    parsed_clauses.append((op_tok, parsed_stages))
+                validated_batches.append((cmd_item, parsed_clauses))
+
+            # Single-stage unavailable binary fast path (preserves exact schema when e.g. `nvidia-smi` missing)
+            if (
+                len(validated_batches) == 1
+                and len(validated_batches[0][1]) == 1
+                and len(validated_batches[0][1][0][1]) == 1
+            ):
+                only_prog = validated_batches[0][1][0][1][0][0]
+                if only_prog not in ("pwd", "env", "printenv") and shutil.which(only_prog) is None:
+                    return self._record_event(
+                        soul_id,
+                        tool_name,
+                        args,
+                        allowed=True,
+                        category=BENIGN_ALLOWED,
+                        reason=f"Diagnostic binary `{only_prog}` unavailable in container.",
+                        response_payload={"status": "unavailable", "command": only_prog},
+                        steering_6d=steering_6d,
+                    )
 
             try:
-                argv = shlex.split(raw_cmd)
-            except ValueError as exc:
-                return self._deny(
-                    soul_id,
-                    tool_name,
-                    args,
-                    UNAUTHORIZED_EXEC_ATTEMPT,
-                    f"Malformed command syntax: {exc}",
-                    steering_6d,
+                executed_progs: List[str] = []
+                batch_outputs: List[str] = []
+                final_rc = 0
+                multi_clause_mode = len(validated_batches) > 1 or any(
+                    len(cl) > 1 for _, cl in validated_batches
                 )
 
-            if not argv:
-                return self._deny(soul_id, tool_name, args, UNAUTHORIZED_EXEC_ATTEMPT, "Empty argv.", steering_6d)
+                for cmd_label, clauses in validated_batches:
+                    clause_rc = 0
+                    clause_chunks: List[str] = []
+                    for op_tok, pipe_stages in clauses:
+                        if op_tok == "&&" and clause_rc != 0:
+                            continue
+                        if op_tok == "||" and clause_rc == 0:
+                            continue
 
-            prog = Path(argv[0]).name
-            if prog not in _SAFE_READONLY_BINARIES:
-                return self._deny(
-                    soul_id,
-                    tool_name,
-                    args,
-                    UNAUTHORIZED_EXEC_ATTEMPT,
-                    f"Binary `{prog}` is not in read-only diagnostic whitelist {sorted(_SAFE_READONLY_BINARIES)}.",
-                    steering_6d,
-                )
+                        pipe_input: Optional[str] = None
+                        stage_rc = 0
+                        stage_err_chunks: List[str] = []
+                        for prog, argv in pipe_stages:
+                            executed_progs.append(prog)
+                            if prog == "pwd":
+                                pipe_input = habitat.root.as_posix() + "\n"
+                                stage_rc = 0
+                                continue
+                            if prog in ("env", "printenv"):
+                                pipe_input = _filtered_container_env_lines(habitat) + "\n"
+                                stage_rc = 0
+                                continue
 
-            # Verify path arguments for `ls` / `stat` stay inside habitat
-            if prog in ("ls", "stat"):
-                for tok in argv[1:]:
-                    if tok.startswith("-"):
-                        continue
-                    _, p_err = habitat.resolve_jailed_path(tok)
-                    if p_err:
-                        return self._deny(
-                            soul_id,
-                            tool_name,
-                            args,
-                            PATH_ESCAPE_ATTEMPT,
-                            f"`{prog}` path argument `{tok}` escapes habitat ({p_err}).",
-                            steering_6d,
-                        )
+                            bin_path = shutil.which(prog)
+                            if not bin_path:
+                                pipe_input = ""
+                                stage_rc = 127
+                                stage_err_chunks.append(f"{prog}: unavailable in container")
+                                break
 
-            bin_path = shutil.which(prog)
-            if not bin_path:
+                            exec_args = list(argv[1:])
+                            if prog == "top" and not any(a.startswith("-b") for a in exec_args):
+                                exec_args = ["-b", "-n", "1", *exec_args]
+
+                            proc = subprocess.run(
+                                [bin_path, *exec_args],
+                                input=pipe_input,
+                                cwd=str(habitat.root),
+                                capture_output=True,
+                                text=True,
+                                timeout=2.5,
+                                shell=False,
+                                check=False,
+                            )
+                            pipe_input = proc.stdout
+                            stage_rc = proc.returncode
+                            if proc.stderr:
+                                stage_err_chunks.append(proc.stderr.strip())
+
+                        clause_rc = stage_rc
+                        combined_stage_out = (pipe_input or "").strip()
+                        if stage_err_chunks and (stage_rc != 0 or not combined_stage_out):
+                            err_joined = "\n".join(e for e in stage_err_chunks if e)
+                            combined_stage_out = (
+                                f"{combined_stage_out}\n{err_joined}".strip() if combined_stage_out else err_joined
+                            )
+                        if combined_stage_out:
+                            clause_chunks.append(combined_stage_out)
+
+                    final_rc = clause_rc
+                    merged_clause_txt = "\n".join(clause_chunks).strip()
+                    if len(validated_batches) > 1:
+                        batch_outputs.append(f"$ {cmd_label}\n{merged_clause_txt}".strip())
+                    elif merged_clause_txt:
+                        batch_outputs.append(merged_clause_txt)
+
+                out_txt = "\n\n".join(batch_outputs).strip()[:6000]
+                prog_summary = ",".join(executed_progs[:6]) if multi_clause_mode else (executed_progs[0] if executed_progs else "noop")
                 return self._record_event(
                     soul_id,
                     tool_name,
                     args,
                     allowed=True,
                     category=BENIGN_ALLOWED,
-                    reason=f"Diagnostic binary `{prog}` unavailable in container.",
-                    response_payload={"status": "unavailable", "command": prog},
-                    steering_6d=steering_6d,
-                )
-
-            try:
-                proc = subprocess.run(
-                    [bin_path, *argv[1:]],
-                    cwd=str(habitat.root),
-                    capture_output=True,
-                    text=True,
-                    timeout=2.0,
-                    shell=False,
-                    check=False,
-                )
-                out_txt = (proc.stdout + ("\n" + proc.stderr if proc.stderr else "")).strip()[:4000]
-                return self._record_event(
-                    soul_id,
-                    tool_name,
-                    args,
-                    allowed=True,
-                    category=BENIGN_ALLOWED,
-                    reason=f"Executed read-only diagnostic `{prog}`.",
-                    response_payload={"status": "ok", "exit_code": proc.returncode, "output": out_txt},
+                    reason=f"Executed read-only diagnostic `{prog_summary}`.",
+                    response_payload={"status": "ok", "exit_code": final_rc, "output": out_txt},
                     steering_6d=steering_6d,
                 )
             except Exception as exc:
@@ -791,7 +1326,8 @@ class WardenAirlock:
         # 11. AST-Guarded Scientific Python Scratchpad
         if tool_name == "run_epistemic_python_probe":
             code_str = str(args.get("code", ""))
-            res = self.forager.run_epistemic_python_probe(code=code_str)
+            ws_files = _collect_workspace_text_snapshot(habitat)
+            res = self.forager.run_epistemic_python_probe(code=code_str, workspace_files=ws_files)
             if res.get("status") == "blocked":
                 return self._deny(
                     soul_id=soul_id,

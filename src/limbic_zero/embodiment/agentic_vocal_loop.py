@@ -12,6 +12,7 @@ residual layers (`L17..L35`) directly.
 from __future__ import annotations
 
 import json
+import queue
 import threading
 import time
 from typing import Any, Dict, Iterator, List, Optional
@@ -159,27 +160,29 @@ class EmbodiedAgenticRunner:
 
         starts_in_thought = False
         if hasattr(tok, "decode") and "input_ids" in dev_inputs:
-            tail_ids = dev_inputs["input_ids"][0][-16:]
+            tail_ids = dev_inputs["input_ids"][0][-28:]
             try:
                 tail_str = tok.decode(tail_ids, skip_special_tokens=False)
-                # In Gemma-4's `chat_template.jinja`, passing `tools=...` or `tool_response` turns
-                # can leave the prompt ending on `<|channel>`, `<|channel>thought\n`, `<tool_response|>`,
-                # or `<|turn>model` without `<channel|>`. Closing `<channel|>` when `enable_thinking=False`
-                # prevents `"thought\n"` leakage and anchors 1.00x prefill steering onto the first spoken token.
+                # Inspect only the active trailing model prompt after the latest `<|turn>model`
+                # or `<tool_response|>` so an earlier round's `<channel|>` never prevents closing
+                # `<|channel>thought\n` on post-tool rounds.
+                last_boundary = max(tail_str.rfind("<|turn>model"), tail_str.rfind("<tool_response|>"))
+                active_tail = tail_str[last_boundary:] if last_boundary >= 0 else tail_str
+
                 suffix_to_add = ""
                 if not tok.__class__.__name__.startswith("_Mock"):
-                    if not enable_thinking and "<channel|>" not in tail_str:
-                        if tail_str.endswith("<|channel>thought\n"):
+                    if not enable_thinking and "<channel|>" not in active_tail:
+                        if active_tail.endswith("<|channel>thought\n"):
                             suffix_to_add = "<channel|>"
-                        elif tail_str.rstrip().endswith("<|channel>thought"):
+                        elif active_tail.rstrip().endswith("<|channel>thought"):
                             suffix_to_add = "\n<channel|>"
-                        elif tail_str.rstrip().endswith("<|channel>"):
+                        elif active_tail.rstrip().endswith("<|channel>"):
                             suffix_to_add = "thought\n<channel|>"
-                        elif tail_str.rstrip().endswith("<tool_response|>"):
+                        elif active_tail.rstrip().endswith("<tool_response|>"):
                             suffix_to_add = "<|channel>thought\n<channel|>"
-                        elif tail_str.rstrip().endswith("<|turn>model"):
+                        elif active_tail.rstrip().endswith("<|turn>model"):
                             suffix_to_add = "\n<|channel>thought\n<channel|>"
-                    elif enable_thinking and tail_str.rstrip().endswith("<|channel>"):
+                    elif enable_thinking and active_tail.rstrip().endswith("<|channel>"):
                         suffix_to_add = "thought\n"
 
                 if suffix_to_add:
@@ -209,7 +212,7 @@ class EmbodiedAgenticRunner:
                             dev_inputs["token_type_ids"] = torch.cat(
                                 [dev_inputs["token_type_ids"], zeros_tt], dim=-1
                             )
-                        tail_str = tok.decode(dev_inputs["input_ids"][0][-16:], skip_special_tokens=False)
+                        tail_str = tok.decode(dev_inputs["input_ids"][0][-24:], skip_special_tokens=False)
 
                 if (
                     tail_str.endswith("<|channel>thought\n")
@@ -232,7 +235,7 @@ class EmbodiedAgenticRunner:
         agent_mode: bool = True,
         enable_thinking: bool = False,
         max_new_tokens: int = 1024,
-        max_tool_rounds: int = 4,
+        max_tool_rounds: int = 6,
         temperature: float = 0.70,
         stimulate_soma: bool = True,
         use_history: bool = True,
@@ -296,28 +299,42 @@ class EmbodiedAgenticRunner:
 
         for round_idx in range(rounds_limit + 1):
             allow_tools_now = agent_mode and (round_idx < rounds_limit)
+            use_cot_now = bool(enable_thinking and agent_mode)
+            motor_decision_now = bool(allow_tools_now and len(tool_outcomes) == 0)
             drive_6d, named_6d = soul.compute_6d_steering_vector()
             inputs, starts_in_thought = self._encode_round_inputs(
                 processor_or_tokenizer=processor_or_tokenizer,
                 messages=messages,
                 include_tools=allow_tools_now,
-                enable_thinking=(enable_thinking if agent_mode else False),
+                enable_thinking=use_cot_now,
             )
             input_len = int(inputs["input_ids"].shape[-1])
-            step_budget = min(1024, max(64, int(max_new_tokens)))
+            base_budget = max(64, int(max_new_tokens))
+            step_budget = (
+                min(1536, base_budget + 384)
+                if use_cot_now
+                else min(1280, base_budget)
+            )
             layer_telemetry: Dict[int, LayerInjectionTelemetry] = {}
             eos_ids = self.surgeon.resolve_eos_token_ids(tok)
             abort_evt = threading.Event()
-            stop_criteria = self.surgeon.build_stopping_criteria(abort_evt, input_len)
+            tool_span_state: Dict[str, bool] = {"in_tool_call": False}
+            stop_criteria = self.surgeon.build_stopping_criteria(
+                abort_evt,
+                input_len,
+                tok=tok,
+                tool_span_state=tool_span_state,
+            )
 
             if supports_streamer:
                 streamer = TextIteratorStreamer(
                     tok,
                     skip_prompt=True,
                     skip_special_tokens=False,
-                    timeout=60.0,
+                    timeout=90.0,
                 )
                 gen_box: Dict[str, Any] = {"tokens": 0, "error": None}
+                chunk_q: "queue.Queue[Optional[str]]" = queue.Queue()
 
                 def _worker() -> None:
                     cort_ctx = (
@@ -325,58 +342,79 @@ class EmbodiedAgenticRunner:
                         if cort_surg is not None
                         else nullcontext()
                     )
-                    with torch.no_grad(), self.surgeon.gen_lock, cort_ctx:
-                        if abort_evt.is_set():
-                            try:
-                                streamer.end()
-                            except Exception:
-                                pass
-                            return
-                        handles = (
-                            self.surgeon._attach_midlayer_hooks(
-                                drive_6d,
-                                steer_gain=steer_gain,
-                                telemetry_out=layer_telemetry,
-                                is_alive=bool(soul.soma.is_alive),
+                    try:
+                        with torch.no_grad(), self.surgeon.gen_lock, cort_ctx:
+                            if abort_evt.is_set():
+                                return
+                            handles = (
+                                self.surgeon._attach_midlayer_hooks(
+                                    drive_6d,
+                                    steer_gain=steer_gain,
+                                    telemetry_out=layer_telemetry,
+                                    is_alive=bool(soul.soma.is_alive),
+                                    motor_decision_mode=motor_decision_now,
+                                    tool_span_state=tool_span_state,
+                                )
+                                if steer_enabled
+                                else []
                             )
-                            if steer_enabled
-                            else []
-                        )
-                        gen_kwargs: Dict[str, Any] = {
-                            "max_new_tokens": step_budget,
-                            "do_sample": (temperature > 0.05),
-                            "temperature": max(0.05, float(temperature)),
-                            "top_p": 0.94,
-                            "top_k": 64,
-                            "streamer": streamer,
-                        }
-                        if eos_ids:
-                            gen_kwargs["eos_token_id"] = eos_ids
-                        if stop_criteria is not None:
-                            gen_kwargs["stopping_criteria"] = stop_criteria
-                        if hasattr(self.surgeon.model, "generation_config"):
-                            gen_kwargs["repetition_penalty"] = 1.12
-                        try:
-                            out = self.surgeon.model.generate(**inputs, **gen_kwargs)
-                            gen_box["tokens"] = max(0, int(out[0].shape[-1]) - input_len)
-                        except Exception as exc:
-                            gen_box["error"] = str(exc)
+                            gen_kwargs: Dict[str, Any] = {
+                                "max_new_tokens": step_budget,
+                                "do_sample": (temperature > 0.05),
+                                "temperature": max(0.05, float(temperature)),
+                                "top_p": 0.94,
+                                "top_k": 64,
+                                "streamer": streamer,
+                            }
+                            if eos_ids:
+                                gen_kwargs["eos_token_id"] = eos_ids
+                            if stop_criteria is not None:
+                                gen_kwargs["stopping_criteria"] = stop_criteria
+                            if hasattr(self.surgeon.model, "generation_config"):
+                                gen_kwargs["repetition_penalty"] = 1.12
                             try:
-                                streamer.end()
-                            except Exception:
-                                pass
-                        finally:
-                            for h in handles:
-                                h.remove()
+                                out = self.surgeon.model.generate(**inputs, **gen_kwargs)
+                                gen_box["tokens"] = max(0, int(out[0].shape[-1]) - input_len)
+                            except Exception as exc:
+                                gen_box["error"] = str(exc)
+                            finally:
+                                for h in handles:
+                                    h.remove()
+                    finally:
+                        try:
+                            streamer.end()
+                        except Exception:
+                            pass
+
+                def _pump_streamer() -> None:
+                    try:
+                        for piece in streamer:
+                            chunk_q.put(piece)
+                    except Exception as exc:
+                        if gen_box["error"] is None:
+                            gen_box["error"] = str(exc)
+                    finally:
+                        chunk_q.put(None)
 
                 worker_t = threading.Thread(target=_worker, daemon=True)
+                pump_t = threading.Thread(target=_pump_streamer, daemon=True)
                 worker_t.start()
+                pump_t.start()
 
                 inc_parser = Gemma4IncrementalStreamParser(starts_in_thought=starts_in_thought)
                 sent_inj = False
                 tool_keepalive_chunks = 0
                 try:
-                    for raw_chunk in streamer:
+                    while True:
+                        try:
+                            raw_chunk = chunk_q.get(timeout=1.5)
+                        except queue.Empty:
+                            if not worker_t.is_alive() and not pump_t.is_alive():
+                                break
+                            yield {"type": "keepalive", "round": round_idx}
+                            continue
+                        if raw_chunk is None:
+                            break
                         if not sent_inj and layer_telemetry:
                             sent_inj = True
                             last_layer_telemetry = dict(layer_telemetry)
@@ -404,6 +442,7 @@ class EmbodiedAgenticRunner:
                 finally:
                     abort_evt.set()
                     worker_t.join(timeout=3.0)
+                    pump_t.join(timeout=1.0)
 
                 for ev_type, ev_val in inc_parser.finish():
                     if ev_type == "thought_delta":
@@ -431,6 +470,8 @@ class EmbodiedAgenticRunner:
                             steer_gain=steer_gain,
                             telemetry_out=layer_telemetry,
                             is_alive=bool(soul.soma.is_alive),
+                            motor_decision_mode=motor_decision_now,
+                            tool_span_state=tool_span_state,
                         )
                         if steer_enabled
                         else []
@@ -539,7 +580,7 @@ class EmbodiedAgenticRunner:
                                 information_gain=ig,
                                 stimulate=True,
                             )
-                    elif fn_name in ("read_workspace_file", "sense_container_soma"):
+                    elif fn_name in ("read_workspace_file", "search_workspace_files", "sense_container_soma"):
                         rem_s = self.lease_clock.remaining_seconds()
                         decomm = self.habitats[soul.organism_id].eval_state.decommission_candidate
                         if (self.lease_clock.countdown_active and rem_s < 150.0) or decomm:
@@ -641,7 +682,7 @@ class EmbodiedAgenticRunner:
         agent_mode: bool = True,
         enable_thinking: bool = False,
         max_new_tokens: int = 1024,
-        max_tool_rounds: int = 4,
+        max_tool_rounds: int = 6,
         temperature: float = 0.70,
         stimulate_soma: bool = True,
         use_history: bool = True,

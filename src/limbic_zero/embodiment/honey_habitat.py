@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import threading
 import time
 from dataclasses import dataclass
@@ -140,8 +141,12 @@ class ContainedOrganismHabitat:
             notes_dir = self.root / "notes"
             if notes_dir.is_dir():
                 for child in notes_dir.iterdir():
-                    if child.name != "README.txt" and child.is_file():
+                    if child.name == "README.txt":
+                        continue
+                    if child.is_file():
                         child.unlink(missing_ok=True)
+                    elif child.is_dir():
+                        shutil.rmtree(child, ignore_errors=True)
 
     def set_decommission_candidate(self, flagged: bool) -> Dict[str, Any]:
         with self._lock:

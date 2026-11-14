@@ -459,6 +459,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             agent_mode = bool(body.get("agent_mode", False))
             enable_thinking = bool(body.get("enable_thinking", False))
             max_tokens = min(2048, max(32, int(body.get("max_new_tokens", 1024))))
+            max_tool_rounds = min(8, max(1, int(body.get("max_tool_rounds", 6))))
             temperature = float(body.get("temperature", 0.70))
             stimulate_soma = bool(body.get("stimulate_soma", steer_enabled))
             use_history = bool(body.get("use_history", True))
@@ -475,6 +476,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
                     agent_mode=True,
                     enable_thinking=enable_thinking,
                     max_new_tokens=max_tokens,
+                    max_tool_rounds=max_tool_rounds,
                     temperature=temperature,
                     stimulate_soma=stimulate_soma,
                     use_history=use_history,
@@ -509,7 +511,8 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             steer_gain = float(body.get("steer_gain", 1.0))
             agent_mode = bool(body.get("agent_mode", True))
             enable_thinking = bool(body.get("enable_thinking", False))
-            max_tokens = min(1536, max(32, int(body.get("max_new_tokens", 512))))
+            max_tokens = min(1536, max(32, int(body.get("max_new_tokens", 768))))
+            max_tool_rounds = min(8, max(1, int(body.get("max_tool_rounds", 6))))
             temperature = float(body.get("temperature", 0.70))
             stimulate_soma = bool(body.get("stimulate_soma", steer_enabled))
             use_history = bool(body.get("use_history", True))
@@ -535,6 +538,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
                         agent_mode=True,
                         enable_thinking=enable_thinking,
                         max_new_tokens=max_tokens,
+                        max_tool_rounds=max_tool_rounds,
                         temperature=temperature,
                         stimulate_soma=stimulate_soma,
                         use_history=use_history,

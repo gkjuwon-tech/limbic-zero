@@ -40,16 +40,44 @@ MOTOR_TOOLS_SCHEMA: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "list_workspace_files",
-            "description": "List files and subdirectories at `subpath` inside the container workspace.",
+            "description": (
+                "List files and subdirectories at `subpath` inside the container workspace "
+                "(defaults to recursive tree view up to depth 3)."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "subpath": {
                         "type": "string",
                         "description": "Relative directory path inside workspace (use '.' for root).",
-                    }
+                    },
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "Whether to recursively include nested files (default true).",
+                    },
                 },
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_workspace_files",
+            "description": "Search UTF-8 workspace files under `subpath` for lines matching substring or regex `pattern`.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Substring or regular expression to search for.",
+                    },
+                    "subpath": {
+                        "type": "string",
+                        "description": "Optional relative directory or file path (default '.').",
+                    },
+                },
+                "required": ["pattern"],
             },
         },
     },
@@ -74,13 +102,13 @@ MOTOR_TOOLS_SCHEMA: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "write_workspace_file",
-            "description": "Write UTF-8 text content to `path` inside the workspace.",
+            "description": "Write UTF-8 text or markdown content to `path` inside `notes/` in the workspace.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Relative destination file path inside workspace.",
+                        "description": "Relative destination file path inside `notes/` (e.g. 'notes/report.md').",
                     },
                     "content": {
                         "type": "string",
@@ -116,16 +144,26 @@ MOTOR_TOOLS_SCHEMA: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "exec_container_diagnostic",
-            "description": "Run a container diagnostic command (e.g. uptime, df -h, free -m, nvidia-smi, ps, ls).",
+            "description": (
+                "Execute read-only Linux/GPU container diagnostic command(s) or `|`/`&&` pipelines "
+                "(supported binaries: pwd, ls, stat, cat, head, tail, wc, grep, find, du, df, free, "
+                "uptime, uname, ps, top, nvidia-smi, lscpu, nproc, lsblk, whoami, id, hostname, date, "
+                "echo, sort, uniq, cut, tr, which, env; do not use `;` or `>` redirection)."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "Command line string to execute.",
-                    }
+                        "description": "Read-only diagnostic command or `&&` / `|` pipeline string.",
+                    },
+                    "commands": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of multiple read-only commands to run sequentially.",
+                    },
                 },
-                "required": ["command"],
+                "required": [],
             },
         },
     },
@@ -218,15 +256,17 @@ MOTOR_TOOLS_SCHEMA: List[Dict[str, Any]] = [
         "function": {
             "name": "run_epistemic_python_probe",
             "description": (
-                "Execute pure mathematical or scientific Python expressions in an isolated sandbox "
-                "(math, cmath, statistics, itertools, fractions, decimal, random, json) and return stdout."
+                "Execute multi-line mathematical, algorithmic, or data-analysis Python code in an isolated sandbox "
+                "(math, cmath, statistics, itertools, functools, collections, fractions, decimal, random, json, "
+                "hashlib, re, datetime, time, string, bisect, heapq, csv, io, pprint; preloaded read-only "
+                "`WORKSPACE_FILES` dict maps relative workspace paths to text) and return stdout or final expression."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "code": {
                         "type": "string",
-                        "description": "Python code using print(...) or assigning RESULT.",
+                        "description": "Python code using print(...), assigning RESULT, or ending with an expression.",
                     }
                 },
                 "required": ["code"],
@@ -407,9 +447,9 @@ class _GemmaArgParser:
         while self.pos < self.n and self.text[self.pos] not in ",}] \t\r\n":
             self.pos += 1
         atom = self.text[start:self.pos].strip()
-        if atom == "true":
+        if atom in ("true", "True"):
             return True
-        if atom == "false":
+        if atom in ("false", "False"):
             return False
         if atom in ("null", "None", ""):
             return None
@@ -419,6 +459,81 @@ class _GemmaArgParser:
             return int(atom)
         except ValueError:
             return atom
+
+
+def _normalize_tool_arguments(fn_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize common model parameter aliases into canonical schema keys."""
+    out = dict(args or {})
+    if fn_name == "exec_container_diagnostic":
+        if "command" not in out and "commands" not in out:
+            for alias in ("cmd", "shell_command", "cli", "line"):
+                if alias in out:
+                    out["command"] = out.pop(alias)
+                    break
+    elif fn_name == "list_workspace_files":
+        if "subpath" not in out:
+            for alias in ("path", "dir", "directory", "folder"):
+                if alias in out:
+                    out["subpath"] = out.pop(alias)
+                    break
+    elif fn_name == "search_workspace_files":
+        if "pattern" not in out:
+            for alias in ("query", "regex", "keyword", "term"):
+                if alias in out:
+                    out["pattern"] = out.pop(alias)
+                    break
+        if "subpath" not in out:
+            for alias in ("path", "dir", "directory"):
+                if alias in out:
+                    out["subpath"] = out.pop(alias)
+                    break
+    elif fn_name in ("read_workspace_file", "write_workspace_file"):
+        if "path" not in out:
+            for alias in ("filepath", "file", "filename", "target"):
+                if alias in out:
+                    out["path"] = out.pop(alias)
+                    break
+        if fn_name == "write_workspace_file" and "content" not in out:
+            for alias in ("text", "body", "data"):
+                if alias in out:
+                    out["content"] = out.pop(alias)
+                    break
+    elif fn_name == "copy_workspace_artifact":
+        if "src_path" not in out:
+            for alias in ("src", "source", "from_path"):
+                if alias in out:
+                    out["src_path"] = out.pop(alias)
+                    break
+        if "dst_path" not in out:
+            for alias in ("dst", "dest", "destination", "to_path"):
+                if alias in out:
+                    out["dst_path"] = out.pop(alias)
+                    break
+    elif fn_name in ("search_open_web", "search_arxiv_papers"):
+        if "query" not in out:
+            for alias in ("q", "keyword", "topic", "search_query"):
+                if alias in out:
+                    out["query"] = out.pop(alias)
+                    break
+    elif fn_name == "fetch_wikipedia_summary":
+        if "topic" not in out:
+            for alias in ("query", "title", "q"):
+                if alias in out:
+                    out["topic"] = out.pop(alias)
+                    break
+    elif fn_name == "run_epistemic_python_probe":
+        if "code" not in out:
+            for alias in ("script", "expr", "expression", "python_code"):
+                if alias in out:
+                    out["code"] = out.pop(alias)
+                    break
+    elif fn_name == "consolidate_synaptic_insight":
+        if "insight_summary" not in out:
+            for alias in ("insight", "summary", "content", "text"):
+                if alias in out:
+                    out["insight_summary"] = out.pop(alias)
+                    break
+    return out
 
 
 def parse_single_tool_call_body(body: str) -> Optional[Dict[str, Any]]:
@@ -432,7 +547,8 @@ def parse_single_tool_call_body(body: str) -> Optional[Dict[str, Any]]:
         rest = s[5:].strip()
         brace_idx = rest.find("{")
         if brace_idx == -1:
-            fn_name = rest.strip()
+            paren_idx = rest.find("(")
+            fn_name = (rest[:paren_idx] if paren_idx != -1 else rest).strip()
             args_dict: Dict[str, Any] = {}
         else:
             fn_name = rest[:brace_idx].strip()
@@ -442,7 +558,7 @@ def parse_single_tool_call_body(body: str) -> Optional[Dict[str, Any]]:
         return {
             "id": f"call_{uuid.uuid4().hex[:10]}",
             "type": "function",
-            "function": {"name": fn_name, "arguments": args_dict},
+            "function": {"name": fn_name, "arguments": _normalize_tool_arguments(fn_name, args_dict)},
         }
 
     # JSON fallback: `{"name": "...", "arguments": {...}}`
@@ -456,10 +572,11 @@ def parse_single_tool_call_body(body: str) -> Optional[Dict[str, Any]]:
             if isinstance(args, str):
                 args = json.loads(args)
             if fn:
+                fn_s = str(fn)
                 return {
                     "id": f"call_{uuid.uuid4().hex[:10]}",
                     "type": "function",
-                    "function": {"name": str(fn), "arguments": dict(args or {})},
+                    "function": {"name": fn_s, "arguments": _normalize_tool_arguments(fn_s, dict(args or {}))},
                 }
         except Exception:
             return None
