@@ -406,9 +406,11 @@ class VocalCordRuntimeHub:
             vram_gb = round(props.total_memory / (1024 ** 3), 2)
             vram_alloc_gb = round(torch.cuda.memory_allocated(0) / (1024 ** 3), 2)
 
+        is_tpu = bool(getattr(self.surgeon, "is_tpu_spmd", False))
+        tpu_gen = getattr(self.surgeon, "tpu_generator", None)
         return {
             "status": "ok",
-            "stage": 12,
+            "stage": 14 if is_tpu else 12,
             "model_id": sub.model_id,
             "hidden_size": sub.hidden_size,
             "num_hidden_layers": sub.num_hidden_layers,
@@ -423,6 +425,8 @@ class VocalCordRuntimeHub:
             "vram_total_gb": vram_gb,
             "vram_allocated_gb": vram_alloc_gb,
             "hardware_sensor_source": hw.sensor_source,
+            "tpu_spmd_enabled": is_tpu,
+            "tpu_max_cache_len": int(tpu_gen.max_cache_len) if tpu_gen is not None else None,
             "warden_chain_verified": self.warden.chain.verify_integrity(),
             "primary_soul_id": self.primary_soul_id,
             "available_souls": list(self.souls.keys()),

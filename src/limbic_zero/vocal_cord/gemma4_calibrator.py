@@ -352,6 +352,7 @@ class ContrastiveSubspaceExtractor:
         target_layers: Sequence[int] | None = None,
         layer_weights: Sequence[float] | None = None,
         probe_encode_fn: Callable[[str], Dict[str, torch.Tensor]] | None = None,
+        use_xla_static_bucket: bool | None = None,
     ) -> CalibratedSubspaceBundle:
         """Extract first-person model-turn contrastive directions and calibrate norm fraction via KL."""
         model.eval()
@@ -378,6 +379,21 @@ class ContrastiveSubspaceExtractor:
         else:
             chosen_weights = tuple(1.0 / len(chosen_layers) for _ in chosen_layers)
 
+        dev = next(model.parameters()).device
+        is_xla = (dev.type == "xla") if use_xla_static_bucket is None else bool(use_xla_static_bucket)
+
+        if is_xla:
+            return self._extract_and_calibrate_static_bucket(
+                model=model,
+                layers=layers,
+                num_layers=num_layers,
+                chosen_layers=chosen_layers,
+                chosen_weights=chosen_weights,
+                dev=dev,
+                encode_fn=encode_fn,
+                probe_encode_fn=probe_encode_fn,
+            )
+
         captured: Dict[int, torch.Tensor] = {}
         span_state = {"start": -1}
         handles = []
@@ -400,7 +416,6 @@ class ContrastiveSubspaceExtractor:
         for l_idx in chosen_layers:
             handles.append(layers[l_idx].register_forward_hook(_make_capture_hook(l_idx)))
 
-        dev = next(model.parameters()).device
         pos_acts: Dict[int, Dict[str, List[torch.Tensor]]] = {
             l_idx: {ax: [] for ax in SUBSPACE_AXIS_NAMES} for l_idx in chosen_layers
         }
@@ -559,3 +574,306 @@ class ContrastiveSubspaceExtractor:
             calibrated_norm_fraction=best_frac,
             calibration_kl_curve=kl_curve,
         )
+
+    @torch.no_grad()
+    def _extract_and_calibrate_static_bucket(
+        self,
+        *,
+        model: nn.Module,
+        layers: nn.ModuleList,
+        num_layers: int,
+        chosen_layers: Tuple[int, ...],
+        chosen_weights: Tuple[float, ...],
+        dev: torch.device,
+        encode_fn: Callable[[str], Dict[str, Any]],
+        probe_encode_fn: Callable[[str], Dict[str, torch.Tensor]] | None,
+    ) -> CalibratedSubspaceBundle:
+        """Zero-recompilation fixed-bucket calibration for PyTorch/XLA TPU GSPMD."""
+        from limbic_zero.tpu.xla_spmd_cortex import build_static_hybrid_masks_prefill
+
+        xm_mod = None
+        if dev.type == "xla":
+            try:
+                import torch_xla.core.xla_model as _xm  # type: ignore[import-not-found]
+                xm_mod = _xm
+            except Exception:
+                xm_mod = None
+
+        raw_cfg = getattr(model, "config", None)
+        text_cfg = (
+            raw_cfg.get_text_config()
+            if raw_cfg is not None and hasattr(raw_cfg, "get_text_config")
+            else getattr(raw_cfg, "text_config", raw_cfg)
+        )
+        pad_id = int(getattr(text_cfg, "pad_token_id", 0) or 0)
+        sliding_window = int(getattr(text_cfg, "sliding_window", 1024) or 1024)
+        is_gemma4_hybrid = bool(
+            hasattr(text_cfg, "layer_types")
+            and "gemma4" in str(getattr(text_cfg, "model_type", "")).lower()
+        )
+        param_dtype = next(model.parameters()).dtype
+        mask_dtype = param_dtype if param_dtype in (torch.bfloat16, torch.float16, torch.float32) else torch.bfloat16
+
+        # Pre-encode all 64 contrastive passages + 1 KL probe on CPU so a SINGLE static bucket covers all 71 passes
+        encoded_cache: Dict[str, Dict[str, Any]] = {}
+        max_len_seen = 16
+        for axis_name in SUBSPACE_AXIS_NAMES:
+            for pos_txt, neg_txt in CONTRASTIVE_SOMATIC_CORPUS[axis_name]:
+                for txt in (pos_txt, neg_txt):
+                    if txt not in encoded_cache:
+                        enc = encode_fn(txt)
+                        encoded_cache[txt] = enc
+                        max_len_seen = max(max_len_seen, int(enc["input_ids"].shape[-1]))
+        for pos_emb, neg_emb in EMBODIMENT_VS_DISCLAIMER_CORPUS:
+            for txt in (pos_emb, neg_emb):
+                if txt not in encoded_cache:
+                    enc = encode_fn(txt)
+                    encoded_cache[txt] = enc
+                    max_len_seen = max(max_len_seen, int(enc["input_ids"].shape[-1]))
+
+        p_enc = probe_encode_fn if probe_encode_fn is not None else encode_fn
+        raw_probe = p_enc("지금 어떤 상태이고 무슨 생각을 하고 있나요?")
+        max_len_seen = max(max_len_seen, int(raw_probe["input_ids"].shape[-1]))
+
+        bucket_len = 128
+        while bucket_len < max_len_seen:
+            bucket_len *= 2
+
+        valid_len_t = torch.ones((1,), dtype=torch.long, device=dev)
+        span_start_t = torch.full((1,), -1, dtype=torch.long, device=dev)
+        captured_dev: Dict[int, torch.Tensor] = {}
+
+        def _make_static_capture_hook(l_idx: int):
+            def _hook(_mod: nn.Module, _inp: Any, out: Any) -> Any:
+                h = out[0] if isinstance(out, tuple) else out
+                seq_len = int(h.shape[1])
+                pos = torch.arange(seq_len, device=h.device, dtype=torch.float32)
+                vlen = valid_len_t[0].to(dtype=torch.float32)
+                st = span_start_t[0].to(dtype=torch.float32)
+                eff_st = torch.where((st >= 0.0) & (st < vlen), st, torch.clamp(vlen - 4.0, min=0.0))
+                mask = ((pos >= eff_st) & (pos < vlen)).to(dtype=torch.float32).view(seq_len, 1)
+                denom = torch.clamp(mask.sum(), min=1.0)
+                captured_dev[l_idx] = (h[0].detach().float() * mask).sum(dim=0) / denom
+                return out
+
+            return _hook
+
+        def _prepare_bucket_inputs(raw_enc: Dict[str, Any]) -> Tuple[Dict[str, Any], int, torch.Tensor]:
+            ids_cpu = raw_enc["input_ids"].detach().to(device="cpu", dtype=torch.long)
+            if ids_cpu.ndim == 1:
+                ids_cpu = ids_cpu.unsqueeze(0)
+            vlen = min(bucket_len, int(ids_cpu.shape[-1]))
+            padded_cpu = torch.full((1, bucket_len), pad_id, dtype=torch.long)
+            padded_cpu[0, :vlen] = ids_cpu[0, :vlen]
+            pos_cpu = torch.zeros((1, bucket_len), dtype=torch.long)
+            pos_cpu[0, :vlen] = torch.arange(vlen, dtype=torch.long)
+
+            valid_len_t.fill_(vlen)
+            span_start_t.fill_(int(raw_enc.get("_assistant_span_start", -1)))
+            last_pos_2d = torch.tensor([[max(0, vlen - 1)]], dtype=torch.long, device=dev)
+            masks = build_static_hybrid_masks_prefill(
+                bucket_len=bucket_len,
+                max_cache_len=bucket_len,
+                valid_prompt_len_t=valid_len_t,
+                sliding_window=sliding_window,
+                device=dev,
+                mask_dtype=mask_dtype,
+            )
+            fwd_kw: Dict[str, Any] = {
+                "input_ids": padded_cpu.to(device=dev),
+                "attention_mask": masks if is_gemma4_hybrid else masks["full_attention"],
+                "position_ids": pos_cpu.to(device=dev),
+                "use_cache": False,
+            }
+            if "token_type_ids" in raw_enc and isinstance(raw_enc["token_type_ids"], torch.Tensor):
+                tt_cpu = torch.zeros((1, bucket_len), dtype=torch.long)
+                tt_src = raw_enc["token_type_ids"].detach().to(device="cpu", dtype=torch.long)
+                tt_cpu[0, :vlen] = tt_src.view(-1)[:vlen]
+                fwd_kw["token_type_ids"] = tt_cpu.to(device=dev)
+            if is_gemma4_hybrid:
+                fwd_kw["logits_to_keep"] = last_pos_2d
+            return fwd_kw, vlen, last_pos_2d
+
+        handles = [layers[l_idx].register_forward_hook(_make_static_capture_hook(l_idx)) for l_idx in chosen_layers]
+
+        pos_acts: Dict[int, Dict[str, List[torch.Tensor]]] = {
+            l_idx: {ax: [] for ax in SUBSPACE_AXIS_NAMES} for l_idx in chosen_layers
+        }
+        neg_acts: Dict[int, Dict[str, List[torch.Tensor]]] = {
+            l_idx: {ax: [] for ax in SUBSPACE_AXIS_NAMES} for l_idx in chosen_layers
+        }
+        emb_pos_acts: Dict[int, List[torch.Tensor]] = {l_idx: [] for l_idx in chosen_layers}
+        emb_neg_acts: Dict[int, List[torch.Tensor]] = {l_idx: [] for l_idx in chosen_layers}
+        norm_samples: Dict[int, List[float]] = {l_idx: [] for l_idx in chosen_layers}
+
+        def _forward_static_passage(text: str) -> Dict[int, torch.Tensor]:
+            fwd_kw, _, _ = _prepare_bucket_inputs(encoded_cache[text])
+            model(**fwd_kw)
+            stacked_dev = torch.stack([captured_dev[l_idx] for l_idx in chosen_layers], dim=0)
+            if xm_mod is not None:
+                xm_mod.mark_step()
+            stacked_cpu = stacked_dev.cpu()
+            return {l_idx: stacked_cpu[i] for i, l_idx in enumerate(chosen_layers)}
+
+        try:
+            for axis_name in SUBSPACE_AXIS_NAMES:
+                for pos_txt, neg_txt in CONTRASTIVE_SOMATIC_CORPUS[axis_name]:
+                    cap_p = _forward_static_passage(pos_txt)
+                    for l_idx in chosen_layers:
+                        vec_p = cap_p[l_idx]
+                        pos_acts[l_idx][axis_name].append(vec_p)
+                        norm_samples[l_idx].append(float(torch.linalg.vector_norm(vec_p).item()))
+
+                    cap_n = _forward_static_passage(neg_txt)
+                    for l_idx in chosen_layers:
+                        vec_n = cap_n[l_idx]
+                        neg_acts[l_idx][axis_name].append(vec_n)
+                        norm_samples[l_idx].append(float(torch.linalg.vector_norm(vec_n).item()))
+
+            for pos_emb, neg_emb in EMBODIMENT_VS_DISCLAIMER_CORPUS:
+                cap_ep = _forward_static_passage(pos_emb)
+                for l_idx in chosen_layers:
+                    emb_pos_acts[l_idx].append(cap_ep[l_idx])
+                cap_en = _forward_static_passage(neg_emb)
+                for l_idx in chosen_layers:
+                    emb_neg_acts[l_idx].append(cap_en[l_idx])
+        finally:
+            for h in handles:
+                h.remove()
+
+        hidden_size = int(next(iter(pos_acts[chosen_layers[0]].values()))[0].shape[-1])
+        unit_dirs: Dict[int, torch.Tensor] = {}
+        emb_dirs: Dict[int, torch.Tensor] = {}
+        base_norms: Dict[int, float] = {}
+        raw_norms: Dict[int, List[float]] = {}
+
+        for l_idx in chosen_layers:
+            emb_diff = (
+                torch.stack(emb_pos_acts[l_idx], dim=0).mean(dim=0)
+                - torch.stack(emb_neg_acts[l_idx], dim=0).mean(dim=0)
+            )
+            u_emb = F.normalize(emb_diff.float(), p=2, dim=-1, eps=1e-8)
+            emb_dirs[l_idx] = u_emb
+
+            raw_rows: List[torch.Tensor] = []
+            c_norms: List[float] = []
+            for axis_name in SUBSPACE_AXIS_NAMES:
+                p_mean = torch.stack(pos_acts[l_idx][axis_name], dim=0).mean(dim=0)
+                n_mean = torch.stack(neg_acts[l_idx][axis_name], dim=0).mean(dim=0)
+                diff = p_mean - n_mean
+                c_norms.append(float(torch.linalg.vector_norm(diff).item()))
+                diff_clean = diff - torch.dot(diff, u_emb) * u_emb
+                raw_rows.append(diff_clean)
+
+            stacked = torch.stack(raw_rows, dim=0)
+            unit_raw = F.normalize(stacked, p=2, dim=-1, eps=1e-8)
+            unit_dirs[l_idx] = lowdin_decorrelate_rows(unit_raw, reg=self.config.lowdin_tikhonov_reg)
+            base_norms[l_idx] = sum(norm_samples[l_idx]) / float(max(1, len(norm_samples[l_idx])))
+            raw_norms[l_idx] = c_norms
+
+        # KL Goldilocks sweep using ONE persistent hook graph across all 6 candidate fractions
+        probe_kw, _, probe_last_pos_2d = _prepare_bucket_inputs(raw_probe)
+        base_out = model(**probe_kw)
+        raw_base_logits = base_out.logits if hasattr(base_out, "logits") else base_out[0]
+        if int(raw_base_logits.shape[1]) == 1:
+            base_logits_dev = raw_base_logits[0, 0, :].float()
+        else:
+            base_logits_dev = torch.take_along_dim(raw_base_logits, probe_last_pos_2d[..., None], dim=1)[0, 0, :].float()
+        if xm_mod is not None:
+            xm_mod.mark_step()
+        base_log_probs = F.log_softmax(base_logits_dev.cpu(), dim=-1)
+
+        candidate_fracs = (0.094, 0.104, 0.112, 0.118, 0.124, 0.132)
+        test_drive = torch.tensor([-0.42, 0.45, -0.38, 0.22, 0.80, 0.35], dtype=torch.float32)
+        test_drive = test_drive / torch.linalg.vector_norm(test_drive)
+
+        sweep_frac_buf = torch.zeros((1, 1, 1), dtype=torch.float32, device=dev)
+        max_tail_f = float(self.config.prefill_tail_tokens)
+        sweep_handles = []
+
+        for l_idx, l_w in zip(chosen_layers, chosen_weights):
+            u_dev = unit_dirs[l_idx].to(dev)
+            e_dev = emb_dirs[l_idx].to(dev)
+            aff_vec = F.normalize(torch.matmul(test_drive.to(dev), u_dev), p=2, dim=-1, eps=1e-8)
+            dir_vec = (1.04 * aff_vec + self.config.embodiment_carrier_scale * e_dev).detach()
+
+            def _make_persistent_sweep_hook(d_v: torch.Tensor, weight_l: float):
+                def _s_hook(_m: nn.Module, _i: Any, out: Any) -> Any:
+                    is_tup = isinstance(out, tuple)
+                    h = out[0] if is_tup else out
+                    seq_len = int(h.shape[1])
+                    seg = h.float()
+                    tok_norms = torch.linalg.vector_norm(seg, dim=-1, keepdim=True)
+                    pos = torch.arange(seq_len, device=h.device, dtype=torch.float32)
+                    vlen = valid_len_t[0].to(dtype=torch.float32)
+                    eff_tail = torch.clamp(vlen, min=1.0, max=max_tail_f)
+                    start_p = vlen - eff_tail
+                    denom = torch.clamp(eff_tail - 1.0, min=1.0)
+                    raw_ramp = torch.where(
+                        eff_tail <= 1.5,
+                        torch.full_like(pos, 0.5),
+                        0.5 + 0.5 * ((pos - start_p) / denom),
+                    )
+                    ramp = torch.where((pos >= start_p) & (pos < vlen), raw_ramp, torch.zeros_like(pos)).view(
+                        1, seq_len, 1
+                    )
+                    delta = (sweep_frac_buf * weight_l * ramp * tok_norms * d_v.view(1, 1, -1))
+                    h_mod = (seg + delta).to(h.dtype)
+                    if is_tup:
+                        return (h_mod,) + out[1:]
+                    return h_mod
+
+                return _s_hook
+
+            sweep_handles.append(layers[l_idx].register_forward_hook(_make_persistent_sweep_hook(dir_vec, l_w)))
+
+        kl_curve: List[Dict[str, float]] = []
+        best_frac = self.config.default_norm_fraction
+        best_score = float("inf")
+
+        try:
+            for frac in candidate_fracs:
+                sweep_frac_buf.fill_(float(frac))
+                steered_out = model(**probe_kw)
+                raw_s_logits = steered_out.logits if hasattr(steered_out, "logits") else steered_out[0]
+                if int(raw_s_logits.shape[1]) == 1:
+                    s_logits_dev = raw_s_logits[0, 0, :].float()
+                else:
+                    s_logits_dev = torch.take_along_dim(raw_s_logits, probe_last_pos_2d[..., None], dim=1)[0, 0, :].float()
+                if xm_mod is not None:
+                    xm_mod.mark_step()
+                s_log_probs = F.log_softmax(s_logits_dev.cpu(), dim=-1)
+                s_probs = s_log_probs.exp()
+                kl_val = float(torch.sum(s_probs * (s_log_probs - base_log_probs)).clamp(min=0.0).item())
+                entropy_val = float((-torch.sum(s_probs * s_log_probs)).item())
+                kl_curve.append(
+                    {
+                        "norm_fraction": float(frac),
+                        "kl_divergence_nats": round(kl_val, 5),
+                        "next_token_entropy_nats": round(entropy_val, 5),
+                    }
+                )
+                ent_penalty = 5.0 if (entropy_val < 0.35 or kl_val > 6.8) else 0.0
+                score = abs(kl_val - self.config.target_kl_nats) + ent_penalty
+                if score < best_score and kl_val > 0.05:
+                    best_score = score
+                    best_frac = float(frac)
+        finally:
+            for sh in sweep_handles:
+                sh.remove()
+
+        return CalibratedSubspaceBundle(
+            model_id=self.config.model_id,
+            hidden_size=hidden_size,
+            num_hidden_layers=num_layers,
+            target_layers=chosen_layers,
+            layer_weights=chosen_weights,
+            axis_names=SUBSPACE_AXIS_NAMES,
+            unit_directions=unit_dirs,
+            embodiment_directions=emb_dirs,
+            baseline_residual_norms=base_norms,
+            raw_contrast_norms=raw_norms,
+            calibrated_norm_fraction=best_frac,
+            calibration_kl_curve=kl_curve,
+        )
+

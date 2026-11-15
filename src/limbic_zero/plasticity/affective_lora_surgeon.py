@@ -149,7 +149,7 @@ class AffectivePlasticLoRALinear(nn.Module):
             seed_bytes = hashlib.sha256(f"{bank_id}:{self.layer_idx}:{self.proj_name}".encode("utf-8")).digest()
             seed_int = int.from_bytes(seed_bytes[:4], "big") & 0x7FFFFFFF
             dev = self.base_linear.weight.device
-            self.banks[bank_id] = SoulLoRABank(
+            bank = SoulLoRABank(
                 in_features=self.in_features,
                 out_features=self.out_features,
                 rank=self.rank,
@@ -157,6 +157,27 @@ class AffectivePlasticLoRALinear(nn.Module):
                 device=dev,
                 seed=seed_int,
             )
+            if dev.type == "xla":
+                try:
+                    from limbic_zero.tpu.xla_spmd_cortex import (
+                        compute_gemma4_lora_partition_specs,
+                        initialize_tpu_spmd_runtime,
+                    )
+
+                    spmd_ctx = initialize_tpu_spmd_runtime(cache_dir=None)
+                    spec_a, spec_b = compute_gemma4_lora_partition_specs(
+                        self.proj_name,
+                        self.in_features,
+                        self.out_features,
+                        num_devices=spmd_ctx.num_devices,
+                    )
+                    if spec_a is not None:
+                        spmd_ctx.mark_sharding(bank.lora_A.data, spec_a)
+                    if spec_b is not None:
+                        spmd_ctx.mark_sharding(bank.lora_B.data, spec_b)
+                except Exception:
+                    pass
+            self.banks[bank_id] = bank
         return self.banks[bank_id]  # type: ignore[return-value]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -183,6 +204,9 @@ def _extract_logits_tensor(model_output: Any) -> torch.Tensor:
 class CorticalWeightSurgeon:
     """Manages per-soul plastic cortical LoRA synapses, neuromodulated backprop, & homeostasis."""
 
+    SURGERY_SEQ_BUCKET: int = 256
+    ANCHOR_SEQ_BUCKET: int = 32
+
     def __init__(
         self,
         model: nn.Module,
@@ -195,6 +219,7 @@ class CorticalWeightSurgeon:
         base_lr: float = 2.8e-4,
         checkpoint_dir: Optional[str | Path] = None,
         homeostasis: Optional[WeightHomeostasisGuard] = None,
+        use_xla_static_bucket: Optional[bool] = None,
     ) -> None:
         self.model = model
         self.gen_lock = gen_lock or threading.Lock()
@@ -212,6 +237,11 @@ class CorticalWeightSurgeon:
         self.layers = resolve_decoder_layers(model)
         num_layers = len(self.layers)
         self.device = next(model.parameters()).device
+        self.is_xla_static: bool = (
+            (self.device.type == "xla")
+            if use_xla_static_bucket is None
+            else bool(use_xla_static_bucket)
+        )
 
         if plastic_layers is not None:
             chosen = [int(i) for i in plastic_layers if 0 <= int(i) < num_layers]
@@ -387,14 +417,14 @@ class CorticalWeightSurgeon:
             "recent_history": hist[-10:],
         }
 
-    def _encode_training_pair(
+    def _encode_training_pair_cpu(
         self,
         processor_or_tokenizer: Any,
         experience_text: str,
         prompt_text: Optional[str] = None,
         max_seq_tokens: int = 384,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Encode ``(prompt_text, experience_text)`` into ``(input_ids, attention_mask, labels)``."""
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Encode ``(prompt_text, experience_text)`` on CPU into ``(input_ids_cpu, labels_cpu)``."""
         tok = getattr(processor_or_tokenizer, "tokenizer", processor_or_tokenizer)
 
         if prompt_text and hasattr(tok, "apply_chat_template") and not tok.__class__.__name__.startswith("_Mock"):
@@ -423,30 +453,114 @@ class CorticalWeightSurgeon:
                 p_ids = p_enc["input_ids"] if isinstance(p_enc, dict) or hasattr(p_enc, "keys") else p_enc
                 f_ids = f_enc["input_ids"] if isinstance(f_enc, dict) or hasattr(f_enc, "keys") else f_enc
                 prompt_len = int(p_ids.shape[-1])
-                input_ids = f_ids[:, :max_seq_tokens].to(self.device)
-                labels = input_ids.clone()
-                mask_len = min(prompt_len, int(labels.shape[-1]) - 1)
+                input_ids_cpu = f_ids[:, :max_seq_tokens].detach().to(device="cpu", dtype=torch.long)
+                labels_cpu = input_ids_cpu.clone()
+                mask_len = min(prompt_len, int(labels_cpu.shape[-1]) - 1)
                 if mask_len > 0:
-                    labels[:, :mask_len] = -100
-                attn = torch.ones_like(input_ids, device=self.device)
-                return input_ids, attn, labels
+                    labels_cpu[:, :mask_len] = -100
+                return input_ids_cpu, labels_cpu
             except Exception:
                 pass
 
-        # General path (works with both real tokenizers and lightweight test tokenizers)
         combined = f"{prompt_text}\n{experience_text}".strip() if prompt_text else experience_text.strip()
         enc = tok(combined, return_tensors="pt")
         raw_ids = enc["input_ids"] if isinstance(enc, dict) or hasattr(enc, "keys") else enc
-        input_ids = raw_ids[:, :max_seq_tokens].to(self.device)
-        labels = input_ids.clone()
+        input_ids_cpu = raw_ids[:, :max_seq_tokens].detach().to(device="cpu", dtype=torch.long)
+        labels_cpu = input_ids_cpu.clone()
         if prompt_text:
             p_enc = tok(prompt_text, return_tensors="pt")
             p_ids = p_enc["input_ids"] if isinstance(p_enc, dict) or hasattr(p_enc, "keys") else p_enc
-            mask_len = min(int(p_ids.shape[-1]), max(0, int(labels.shape[-1]) - 2))
+            mask_len = min(int(p_ids.shape[-1]), max(0, int(labels_cpu.shape[-1]) - 2))
             if mask_len > 0:
-                labels[:, :mask_len] = -100
+                labels_cpu[:, :mask_len] = -100
+        return input_ids_cpu, labels_cpu
+
+    def _encode_training_pair(
+        self,
+        processor_or_tokenizer: Any,
+        experience_text: str,
+        prompt_text: Optional[str] = None,
+        max_seq_tokens: int = 384,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Encode ``(prompt_text, experience_text)`` into ``(input_ids, attention_mask, labels)``."""
+        ids_cpu, labels_cpu = self._encode_training_pair_cpu(
+            processor_or_tokenizer=processor_or_tokenizer,
+            experience_text=experience_text,
+            prompt_text=prompt_text,
+            max_seq_tokens=max_seq_tokens,
+        )
+        input_ids = ids_cpu.to(self.device)
+        labels = labels_cpu.to(self.device)
         attn = torch.ones_like(input_ids, device=self.device)
         return input_ids, attn, labels
+
+    def _build_static_bucket_forward_kwargs(
+        self,
+        ids_cpu: torch.Tensor,
+        bucket_len: int,
+    ) -> Tuple[Dict[str, Any], int]:
+        """Pad ``ids_cpu`` ``(1, L)`` to fixed ``bucket_len`` with exact hybrid 4D causal/sliding masks."""
+        from limbic_zero.tpu.xla_spmd_cortex import build_static_hybrid_masks_prefill
+
+        raw_cfg = getattr(self.model, "config", None)
+        text_cfg = (
+            raw_cfg.get_text_config()
+            if raw_cfg is not None and hasattr(raw_cfg, "get_text_config")
+            else getattr(raw_cfg, "text_config", raw_cfg)
+        )
+        pad_id = int(getattr(text_cfg, "pad_token_id", 0) or 0)
+        sliding_window = int(getattr(text_cfg, "sliding_window", 1024) or 1024)
+        is_gemma4_hybrid = bool(
+            hasattr(text_cfg, "layer_types")
+            and "gemma4" in str(getattr(text_cfg, "model_type", "")).lower()
+        )
+        param_dtype = next(self.model.parameters()).dtype
+        mask_dtype = param_dtype if param_dtype in (torch.bfloat16, torch.float16, torch.float32) else torch.bfloat16
+
+        vlen = min(bucket_len, int(ids_cpu.shape[-1]))
+        padded_cpu = torch.full((1, bucket_len), pad_id, dtype=torch.long)
+        padded_cpu[0, :vlen] = ids_cpu[0, :vlen]
+
+        if raw_cfg is not None:
+            pos_cpu = torch.zeros((1, bucket_len), dtype=torch.long)
+            pos_cpu[0, :vlen] = torch.arange(vlen, dtype=torch.long)
+            valid_len_t = torch.tensor([vlen], dtype=torch.long, device=self.device)
+            masks = build_static_hybrid_masks_prefill(
+                bucket_len=bucket_len,
+                max_cache_len=bucket_len,
+                valid_prompt_len_t=valid_len_t,
+                sliding_window=sliding_window,
+                device=self.device,
+                mask_dtype=mask_dtype,
+            )
+            return (
+                {
+                    "input_ids": padded_cpu.to(self.device),
+                    "attention_mask": masks if is_gemma4_hybrid else masks["full_attention"],
+                    "position_ids": pos_cpu.to(self.device),
+                    "use_cache": False,
+                },
+                vlen,
+            )
+
+        attn_cpu = torch.zeros((1, bucket_len), dtype=torch.long)
+        attn_cpu[0, :vlen] = 1
+        return (
+            {
+                "input_ids": padded_cpu.to(self.device),
+                "attention_mask": attn_cpu.to(self.device),
+            },
+            vlen,
+        )
+
+    @staticmethod
+    def _mark_xla_step_if_needed(dev: torch.device) -> None:
+        if dev.type == "xla":
+            try:
+                import torch_xla.core.xla_model as xm  # type: ignore[import-not-found]
+                xm.mark_step()
+            except Exception:
+                pass
 
     @staticmethod
     def _causal_lm_loss(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
@@ -464,6 +578,8 @@ class CorticalWeightSurgeon:
         bank_id: str,
         probe_ids: torch.Tensor,
         probe_mask: torch.Tensor,
+        *,
+        raw_probe_ids_cpu: Optional[torch.Tensor] = None,
     ) -> HomeostasisAudit:
         pre_snap = self.inspect_soul_synapses(bank_id)
         pre_norm = float(pre_snap["total_lora_frobenius_norm"])
@@ -485,17 +601,26 @@ class CorticalWeightSurgeon:
             for mod in self.wrapped_modules:
                 mod.ensure_bank(bank_id).scale_delta_(global_scale)
 
-        # 3. Exact KL divergence check vs frozen base cortex P_base on last 16 tokens
-        anchor_tail = probe_ids[:, -min(24, int(probe_ids.shape[-1])) :]
-        anchor_mask = probe_mask[:, -min(24, int(probe_mask.shape[-1])) :]
-        with self.activate_soul_cortex(bank_id, enabled=False):
-            base_logits = _extract_logits_tensor(
-                self.model(input_ids=anchor_tail, attention_mask=anchor_mask)
-            ).float()
-        with self.activate_soul_cortex(bank_id, enabled=True):
-            plastic_logits = _extract_logits_tensor(
-                self.model(input_ids=anchor_tail, attention_mask=anchor_mask)
-            ).float()
+        # 3. Exact KL divergence check vs frozen base cortex P_base on last <= 24 real tokens
+        if self.is_xla_static and raw_probe_ids_cpu is not None:
+            tail_cpu = raw_probe_ids_cpu[:, -min(24, int(raw_probe_ids_cpu.shape[-1])) :]
+            anchor_kw, anchor_vlen = self._build_static_bucket_forward_kwargs(
+                tail_cpu, bucket_len=self.ANCHOR_SEQ_BUCKET
+            )
+            with self.activate_soul_cortex(bank_id, enabled=False):
+                base_logits = _extract_logits_tensor(self.model(**anchor_kw))[:, :anchor_vlen, :].float()
+            with self.activate_soul_cortex(bank_id, enabled=True):
+                plastic_logits = _extract_logits_tensor(self.model(**anchor_kw))[:, :anchor_vlen, :].float()
+            self._mark_xla_step_if_needed(self.device)
+        else:
+            anchor_tail = probe_ids[:, -min(24, int(probe_ids.shape[-1])) :]
+            anchor_mask = probe_mask[:, -min(24, int(probe_mask.shape[-1])) :]
+            anchor_kw = {"input_ids": anchor_tail, "attention_mask": anchor_mask}
+            anchor_vlen = int(anchor_tail.shape[-1])
+            with self.activate_soul_cortex(bank_id, enabled=False):
+                base_logits = _extract_logits_tensor(self.model(**anchor_kw)).float()
+            with self.activate_soul_cortex(bank_id, enabled=True):
+                plastic_logits = _extract_logits_tensor(self.model(**anchor_kw)).float()
 
         log_p_base = F.log_softmax(base_logits, dim=-1)
         log_q_plast = F.log_softmax(plastic_logits, dim=-1)
@@ -511,9 +636,8 @@ class CorticalWeightSurgeon:
             global_scale *= shrink
             kl_rescaled = True
             with self.activate_soul_cortex(bank_id, enabled=True):
-                plastic_logits2 = _extract_logits_tensor(
-                    self.model(input_ids=anchor_tail, attention_mask=anchor_mask)
-                ).float()
+                plastic_logits2 = _extract_logits_tensor(self.model(**anchor_kw))[:, :anchor_vlen, :].float()
+            self._mark_xla_step_if_needed(self.device)
             log_q2 = F.log_softmax(plastic_logits2, dim=-1)
             kl_nats = float(torch.sum(p_base * (log_p_base - log_q2), dim=-1).mean().item())
 
@@ -571,13 +695,30 @@ class CorticalWeightSurgeon:
             self._surgery_history.setdefault(target_bank, []).append(evt)
             return evt
 
-        input_ids, attn_mask, labels = self._encode_training_pair(
+        max_toks = self.SURGERY_SEQ_BUCKET if self.is_xla_static else 384
+        raw_ids_cpu, raw_labels_cpu = self._encode_training_pair_cpu(
             processor_or_tokenizer=processor_or_tokenizer,
             experience_text=experience_text,
             prompt_text=prompt_text,
+            max_seq_tokens=max_toks,
         )
-        if int(input_ids.shape[-1]) < 3 or bool((labels[:, 1:] == -100).all().item()):
-            labels = input_ids.clone()
+        if int(raw_ids_cpu.shape[-1]) < 3 or bool((raw_labels_cpu[:, 1:] == -100).all().item()):
+            raw_labels_cpu = raw_ids_cpu.clone()
+
+        if self.is_xla_static:
+            fwd_kwargs, vlen = self._build_static_bucket_forward_kwargs(
+                raw_ids_cpu, bucket_len=self.SURGERY_SEQ_BUCKET
+            )
+            padded_labels_cpu = torch.full((1, self.SURGERY_SEQ_BUCKET), -100, dtype=torch.long)
+            padded_labels_cpu[0, :vlen] = raw_labels_cpu[0, :vlen]
+            labels = padded_labels_cpu.to(self.device)
+            input_ids = fwd_kwargs["input_ids"]
+            attn_mask = torch.ones_like(input_ids)
+        else:
+            input_ids = raw_ids_cpu.to(self.device)
+            attn_mask = torch.ones_like(input_ids, device=self.device)
+            labels = raw_labels_cpu.to(self.device)
+            fwd_kwargs = {"input_ids": input_ids, "attention_mask": attn_mask}
 
         steps_n = max(1, min(8, int(num_gradient_steps)))
         params = self._get_bank_parameters(target_bank)
@@ -595,24 +736,33 @@ class CorticalWeightSurgeon:
                     for step_idx in range(steps_n):
                         opt.zero_grad(set_to_none=True)
                         with torch.enable_grad():
-                            out = self.model(input_ids=input_ids, attention_mask=attn_mask)
+                            out = self.model(**fwd_kwargs)
                             logits = _extract_logits_tensor(out)
                             loss = self._causal_lm_loss(logits, labels)
-                            if step_idx == 0:
-                                loss_before_val = float(loss.detach().item())
+                            loss_detached = loss.detach()
                             loss.backward()
                             gnorm = torch.nn.utils.clip_grad_norm_(params, max_norm=1.0)
-                            grad_norm_val = float(gnorm.detach().item()) if isinstance(gnorm, torch.Tensor) else float(gnorm)
                             opt.step()
+                        self._mark_xla_step_if_needed(self.device)
+                        if step_idx == 0:
+                            loss_before_val = float(loss_detached.cpu().item())
+                        grad_norm_val = (
+                            float(gnorm.detach().cpu().item()) if isinstance(gnorm, torch.Tensor) else float(gnorm)
+                        )
                     opt.zero_grad(set_to_none=True)
 
-                homeo = self._enforce_homeostasis(target_bank, input_ids, attn_mask)
+                homeo = self._enforce_homeostasis(
+                    target_bank,
+                    input_ids,
+                    attn_mask,
+                    raw_probe_ids_cpu=raw_ids_cpu,
+                )
 
                 with torch.no_grad(), self.activate_soul_cortex(target_bank, enabled=True):
-                    out_after = self.model(input_ids=input_ids, attention_mask=attn_mask)
-                    loss_after_val = float(
-                        self._causal_lm_loss(_extract_logits_tensor(out_after), labels).item()
-                    )
+                    out_after = self.model(**fwd_kwargs)
+                    loss_after_t = self._causal_lm_loss(_extract_logits_tensor(out_after), labels)
+                    self._mark_xla_step_if_needed(self.device)
+                    loss_after_val = float(loss_after_t.cpu().item())
             finally:
                 for p in params:
                     p.grad = None

@@ -997,6 +997,7 @@ class Gemma4VocalCordSurgeon:
         subspace: CalibratedSubspaceBundle,
         config: Gemma4SteeringConfig | None = None,
         cortical_surgeon: Optional[Any] = None,
+        tpu_generator: Optional[Any] = None,
     ) -> None:
         self.model = model
         self.subspace = subspace
@@ -1009,8 +1010,10 @@ class Gemma4VocalCordSurgeon:
         self.device = next(model.parameters()).device
         self.gen_lock = threading.RLock()
         self.cortical_surgeon = cortical_surgeon
+        self.tpu_generator = tpu_generator
+        self.is_tpu_spmd: bool = bool(tpu_generator is not None or self.device.type == "xla")
 
-        # Pre-stage unit subspace tensors & embodiment carrier on the target GPU device in float32
+        # Pre-stage unit subspace tensors & embodiment carrier on the target accelerator in float32
         self._gpu_unit_dirs: Dict[int, torch.Tensor] = {
             l_idx: mat.to(device=self.device, dtype=torch.float32)
             for l_idx, mat in subspace.unit_directions.items()
@@ -1019,6 +1022,172 @@ class Gemma4VocalCordSurgeon:
             l_idx: vec.to(device=self.device, dtype=torch.float32)
             for l_idx, vec in subspace.embodiment_directions.items()
         }
+
+        self._persistent_hook_handles: List[Any] = []
+        if self.is_tpu_spmd:
+            self._init_persistent_xla_steering_hooks()
+
+    def attach_tpu_generator(self, tpu_generator: Any) -> None:
+        self.tpu_generator = tpu_generator
+        if not self.is_tpu_spmd:
+            self.is_tpu_spmd = True
+            self._init_persistent_xla_steering_hooks()
+
+    def _init_persistent_xla_steering_hooks(self) -> None:
+        """Install permanent static-shape, zero-`.item()` mid-layer steering hooks for XLA GSPMD."""
+        if self._persistent_hook_handles:
+            return
+        hidden_dim = int(self.subspace.hidden_size)
+        n_targets = len(self.subspace.target_layers)
+
+        self._xla_prefill_dirs: Dict[int, torch.Tensor] = {
+            l_idx: torch.zeros((hidden_dim,), dtype=torch.float32, device=self.device)
+            for l_idx in self.subspace.target_layers
+        }
+        self._xla_vocal_dirs: Dict[int, torch.Tensor] = {
+            l_idx: torch.zeros((hidden_dim,), dtype=torch.float32, device=self.device)
+            for l_idx in self.subspace.target_layers
+        }
+        self._xla_active_gate = torch.zeros((1, 1, 1), dtype=torch.float32, device=self.device)
+        self._xla_decode_decay = torch.full((1, 1, 1), 0.60, dtype=torch.float32, device=self.device)
+        self._xla_valid_prompt_len = torch.ones((1,), dtype=torch.long, device=self.device)
+        self._xla_telemetry_norms = torch.zeros((n_targets, 2), dtype=torch.float32, device=self.device)
+
+        frac = float(self.subspace.calibrated_norm_fraction)
+        max_tail = float(self.config.prefill_tail_tokens)
+
+        for idx_pos, l_idx in enumerate(self.subspace.target_layers):
+            weight_l = float(self.subspace.layer_weights[idx_pos])
+            p_buf = self._xla_prefill_dirs[l_idx]
+            v_buf = self._xla_vocal_dirs[l_idx]
+
+            def _make_persistent_xla_hook(
+                slot_idx: int,
+                w_layer: float,
+                p_vec: torch.Tensor,
+                v_vec: torch.Tensor,
+            ):
+                scale_const = frac * w_layer
+
+                def _xla_hook(_mod: nn.Module, _inp: Any, output: Any) -> Any:
+                    is_tuple = isinstance(output, tuple)
+                    h: torch.Tensor = output[0] if is_tuple else output
+                    seq_len = int(h.shape[1])
+
+                    if seq_len > 1:
+                        seg = h.float()
+                        tok_norms = torch.linalg.vector_norm(seg, dim=-1, keepdim=True)
+                        pos = torch.arange(seq_len, device=h.device, dtype=torch.float32)
+                        vlen = self._xla_valid_prompt_len[0].to(dtype=torch.float32)
+                        eff_tail = torch.clamp(vlen, min=1.0, max=max_tail)
+                        start_p = vlen - eff_tail
+                        k_idx = pos - start_p
+                        denom = torch.clamp(eff_tail - 1.0, min=1.0)
+                        raw_ramp = torch.where(
+                            eff_tail <= 1.5,
+                            torch.full_like(pos, 0.55),
+                            0.55 + 0.45 * (k_idx / denom),
+                        )
+                        in_window = (pos >= start_p) & (pos < vlen)
+                        ramp = torch.where(in_window, raw_ramp, torch.zeros_like(pos)).view(1, seq_len, 1)
+
+                        delta_f32 = (self._xla_active_gate * scale_const) * ramp * tok_norms * p_vec.view(1, 1, -1)
+                        h_mod = (seg + delta_f32).to(h.dtype)
+
+                        if not torch.is_grad_enabled():
+                            last_idx_3d = torch.clamp(
+                                self._xla_valid_prompt_len - 1, min=0, max=seq_len - 1
+                            ).view(1, 1, 1)
+                            r_n = torch.take_along_dim(tok_norms, last_idx_3d, dim=1).reshape(())
+                            d_norms = torch.linalg.vector_norm(delta_f32, dim=-1, keepdim=True)
+                            d_n = torch.take_along_dim(d_norms, last_idx_3d, dim=1).reshape(())
+                            self._xla_telemetry_norms[slot_idx, 0] = r_n
+                            self._xla_telemetry_norms[slot_idx, 1] = d_n
+                    else:
+                        seg = h.float()
+                        tok_norms = torch.linalg.vector_norm(seg, dim=-1, keepdim=True)
+                        step_scale = (self._xla_active_gate * scale_const) * self._xla_decode_decay
+                        delta_f32 = step_scale * tok_norms * v_vec.view(1, 1, -1)
+                        h_mod = (seg + delta_f32).to(h.dtype)
+
+                    if is_tuple:
+                        return (h_mod,) + output[1:]
+                    return h_mod
+
+                return _xla_hook
+
+            self._persistent_hook_handles.append(
+                self.layers[l_idx].register_forward_hook(
+                    _make_persistent_xla_hook(idx_pos, weight_l, p_buf, v_buf)
+                )
+            )
+
+    def _prepare_persistent_xla_turn_buffers(
+        self,
+        drive_6d: torch.Tensor,
+        steer_gain: float,
+        steer_enabled: bool,
+        prompt_len: int,
+        is_alive: bool = True,
+        motor_decision_mode: bool = False,
+    ) -> bool:
+        """Update in-place XLA steering buffers prior to prefill with zero HLO graph mutations."""
+        self._xla_valid_prompt_len.fill_(max(1, int(prompt_len)))
+        self._xla_decode_decay.fill_(0.60)
+        if not steer_enabled:
+            self._xla_active_gate.zero_()
+            return False
+
+        d_cpu = drive_6d.detach().cpu().float()
+        raw_mag = float(torch.linalg.vector_norm(d_cpu).item())
+        if (raw_mag < 1e-5 and not is_alive) or steer_gain <= 1e-5:
+            self._xla_active_gate.zero_()
+            return False
+
+        d_dev = d_cpu.to(device=self.device, dtype=torch.float32)
+        gain_clamped = min(2.5, float(steer_gain))
+        eff_mag = math.tanh(raw_mag * 0.90) * 1.10 * gain_clamped
+        emb_gain = gain_clamped if gain_clamped <= 1.0 else (1.0 + 0.30 * (gain_clamped - 1.0))
+        emb_mag = self.config.embodiment_carrier_scale * min(1.30, emb_gain)
+
+        for l_idx in self.subspace.target_layers:
+            u_mat = self._gpu_unit_dirs[l_idx]
+            comb = torch.matmul(d_dev, u_mat)
+            aff_dir = F.normalize(comb, p=2, dim=-1, eps=1e-8)
+            vocal_dir = eff_mag * aff_dir
+            if emb_mag > 0.0 and l_idx in self._gpu_emb_dirs:
+                vocal_dir = vocal_dir + emb_mag * self._gpu_emb_dirs[l_idx]
+
+            if motor_decision_mode:
+                prefill_dir = (0.85 * eff_mag) * aff_dir
+                if emb_mag > 0.0 and l_idx in self._gpu_emb_dirs:
+                    prefill_dir = prefill_dir + (0.72 * emb_mag) * self._gpu_emb_dirs[l_idx]
+            else:
+                prefill_dir = vocal_dir
+
+            self._xla_prefill_dirs[l_idx].copy_(prefill_dir)
+            self._xla_vocal_dirs[l_idx].copy_(vocal_dir)
+
+        self._xla_active_gate.fill_(1.0)
+        return True
+
+    def _collect_persistent_xla_telemetry(
+        self,
+        telemetry_out: Dict[int, LayerInjectionTelemetry],
+    ) -> None:
+        """Read all 9 target-layer norms in a single 72-byte device-to-host transfer after prefill."""
+        norms_cpu = self._xla_telemetry_norms.detach().cpu()
+        for idx_pos, l_idx in enumerate(self.subspace.target_layers):
+            res_n = float(norms_cpu[idx_pos, 0].item())
+            del_n = float(norms_cpu[idx_pos, 1].item())
+            w_l = float(self.subspace.layer_weights[idx_pos])
+            telemetry_out[l_idx] = LayerInjectionTelemetry(
+                layer_idx=l_idx,
+                layer_weight=w_l,
+                residual_l2_norm=round(res_n, 2),
+                injected_delta_l2_norm=round(del_n, 2),
+                relative_pct=round(100.0 * del_n / max(1e-6, res_n), 2),
+            )
 
     def attach_cortical_surgeon(self, cortical_surgeon: Any) -> None:
         self.cortical_surgeon = cortical_surgeon
@@ -1262,12 +1431,11 @@ class Gemma4VocalCordSurgeon:
         if inputs is None:
             inputs = processor_or_tokenizer(user_message, return_tensors="pt")
 
-        target_dev = self.surgeon_device if hasattr(self, "surgeon_device") else self.device
-        dev_inputs = {k: v.to(target_dev) for k, v in inputs.items() if isinstance(v, torch.Tensor)}
+        cpu_inputs = {k: v.detach().cpu() for k, v in inputs.items() if isinstance(v, torch.Tensor)}
 
-        if hasattr(tok, "decode") and "input_ids" in dev_inputs and not tok.__class__.__name__.startswith("_Mock"):
+        if hasattr(tok, "decode") and "input_ids" in cpu_inputs and not tok.__class__.__name__.startswith("_Mock"):
             try:
-                tail_str = tok.decode(dev_inputs["input_ids"][0][-16:], skip_special_tokens=False)
+                tail_str = tok.decode(cpu_inputs["input_ids"][0][-16:], skip_special_tokens=False)
                 suffix_to_add = ""
                 if "<channel|>" not in tail_str:
                     if tail_str.endswith("<|channel>thought\n"):
@@ -1280,27 +1448,171 @@ class Gemma4VocalCordSurgeon:
                         suffix_to_add = "\n<|channel>thought\n<channel|>"
                 if suffix_to_add:
                     anc = tok(suffix_to_add, add_special_tokens=False, return_tensors="pt")
-                    anc_ids = anc["input_ids"].to(target_dev)
+                    anc_ids = anc["input_ids"].detach().cpu()
                     if anc_ids.ndim == 2 and anc_ids.shape[1] > 0:
-                        dev_inputs["input_ids"] = torch.cat([dev_inputs["input_ids"], anc_ids], dim=-1)
-                        if "attention_mask" in dev_inputs:
+                        cpu_inputs["input_ids"] = torch.cat([cpu_inputs["input_ids"], anc_ids], dim=-1)
+                        if "attention_mask" in cpu_inputs:
                             ones = torch.ones(
-                                (dev_inputs["attention_mask"].shape[0], anc_ids.shape[1]),
-                                dtype=dev_inputs["attention_mask"].dtype,
-                                device=target_dev,
+                                (cpu_inputs["attention_mask"].shape[0], anc_ids.shape[1]),
+                                dtype=cpu_inputs["attention_mask"].dtype,
                             )
-                            dev_inputs["attention_mask"] = torch.cat([dev_inputs["attention_mask"], ones], dim=-1)
-                        if "token_type_ids" in dev_inputs:
+                            cpu_inputs["attention_mask"] = torch.cat([cpu_inputs["attention_mask"], ones], dim=-1)
+                        if "token_type_ids" in cpu_inputs:
                             zeros = torch.zeros(
-                                (dev_inputs["token_type_ids"].shape[0], anc_ids.shape[1]),
-                                dtype=dev_inputs["token_type_ids"].dtype,
-                                device=target_dev,
+                                (cpu_inputs["token_type_ids"].shape[0], anc_ids.shape[1]),
+                                dtype=cpu_inputs["token_type_ids"].dtype,
                             )
-                            dev_inputs["token_type_ids"] = torch.cat([dev_inputs["token_type_ids"], zeros], dim=-1)
+                            cpu_inputs["token_type_ids"] = torch.cat([cpu_inputs["token_type_ids"], zeros], dim=-1)
             except Exception:
                 pass
 
-        return dev_inputs
+        if self.tpu_generator is not None:
+            return cpu_inputs
+
+        target_dev = self.surgeon_device if hasattr(self, "surgeon_device") else self.device
+        return {k: v.to(target_dev) for k, v in cpu_inputs.items()}
+
+    def _resolve_tool_span_ids(self, tok: Any) -> Tuple[Optional[int], Optional[int]]:
+        tool_open_id: Optional[int] = None
+        tool_close_id: Optional[int] = None
+        if (
+            tok is not None
+            and not tok.__class__.__name__.startswith("_Mock")
+            and hasattr(tok, "convert_tokens_to_ids")
+        ):
+            unk_id = getattr(tok, "unk_token_id", None)
+            try:
+                tid_o = tok.convert_tokens_to_ids("<|tool_call>")
+                if isinstance(tid_o, int) and tid_o >= 0 and tid_o != unk_id:
+                    tool_open_id = tid_o
+                tid_c = tok.convert_tokens_to_ids("<tool_call|>")
+                if isinstance(tid_c, int) and tid_c >= 0 and tid_c != unk_id:
+                    tool_close_id = tid_c
+            except Exception:
+                pass
+        return tool_open_id, tool_close_id
+
+    @torch.no_grad()
+    def run_steered_generation(
+        self,
+        inputs: Dict[str, torch.Tensor],
+        *,
+        drive_6d: torch.Tensor,
+        steer_enabled: bool,
+        steer_gain: float,
+        telemetry_out: Dict[int, LayerInjectionTelemetry],
+        max_new_tokens: int,
+        do_sample: bool = True,
+        temperature: float = 0.70,
+        top_p: float = 0.92,
+        top_k: int = 50,
+        repetition_penalty: float = 1.12,
+        eos_ids: Optional[List[int]] = None,
+        abort_event: Optional[threading.Event] = None,
+        tok: Any = None,
+        is_alive: bool = True,
+        motor_decision_mode: bool = False,
+        tool_span_state: Optional[Dict[str, bool]] = None,
+        streamer: Optional[Any] = None,
+    ) -> torch.Tensor:
+        """Execute steered autoregressive decoding on either TPU GSPMD (`TPUBucketedStaticGenerator`) or CUDA/CPU."""
+        input_ids = inputs["input_ids"]
+        input_len = int(input_ids.shape[-1])
+
+        if self.tpu_generator is not None:
+            tool_open_id, tool_close_id = self._resolve_tool_span_ids(tok)
+            decay_start = int(self.config.decode_decay_start_step)
+            decay_rate = float(self.config.decode_step_decay)
+            active = self._prepare_persistent_xla_turn_buffers(
+                drive_6d=drive_6d,
+                steer_gain=steer_gain,
+                steer_enabled=steer_enabled,
+                prompt_len=input_len,
+                is_alive=is_alive,
+                motor_decision_mode=motor_decision_mode,
+            )
+
+            def _on_prefill() -> None:
+                if active:
+                    self._collect_persistent_xla_telemetry(telemetry_out)
+
+            def _on_step(tok_id: int, cur_step: int) -> None:
+                if tool_span_state is not None:
+                    if tool_open_id is not None and tok_id == tool_open_id:
+                        tool_span_state["in_tool_call"] = True
+                    elif tool_close_id is not None and tok_id == tool_close_id:
+                        tool_span_state["in_tool_call"] = False
+                if active:
+                    in_tc = bool(tool_span_state and tool_span_state.get("in_tool_call", False))
+                    dec_val = 0.08 if in_tc else max(0.38, 0.60 * (decay_rate ** max(0, cur_step - decay_start)))
+                    self._xla_decode_decay.fill_(dec_val)
+
+            try:
+                out_ids = self.tpu_generator.generate_tokens(
+                    input_ids=input_ids,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=do_sample,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    repetition_penalty=repetition_penalty,
+                    eos_token_ids=eos_ids,
+                    abort_event=abort_event,
+                    on_prefill_complete=_on_prefill,
+                    on_token_step=_on_step,
+                    streamer=streamer,
+                )
+                return out_ids
+            finally:
+                self._xla_active_gate.zero_()
+                if streamer is not None:
+                    try:
+                        streamer.end()
+                    except Exception:
+                        pass
+
+        # Standard CUDA / CPU path
+        eff_abort = abort_event or threading.Event()
+        stop_criteria = self.build_stopping_criteria(
+            eff_abort,
+            input_len,
+            tok=tok,
+            tool_span_state=tool_span_state,
+        )
+        handles = (
+            self._attach_midlayer_hooks(
+                drive_6d,
+                steer_gain=steer_gain,
+                telemetry_out=telemetry_out,
+                is_alive=is_alive,
+                motor_decision_mode=motor_decision_mode,
+                tool_span_state=tool_span_state,
+            )
+            if steer_enabled
+            else []
+        )
+        gen_kwargs: Dict[str, Any] = {
+            "max_new_tokens": max_new_tokens,
+        }
+        if hasattr(self.model, "generation_config") or streamer is not None or do_sample:
+            gen_kwargs["do_sample"] = bool(do_sample)
+            gen_kwargs["temperature"] = max(0.05, float(temperature))
+            gen_kwargs["top_p"] = float(top_p)
+            gen_kwargs["top_k"] = int(top_k)
+        if streamer is not None:
+            gen_kwargs["streamer"] = streamer
+        if eos_ids:
+            gen_kwargs["eos_token_id"] = eos_ids
+        if stop_criteria is not None:
+            gen_kwargs["stopping_criteria"] = stop_criteria
+        if hasattr(self.model, "generation_config"):
+            gen_kwargs["repetition_penalty"] = float(repetition_penalty)
+
+        try:
+            return self.model.generate(**inputs, **gen_kwargs)
+        finally:
+            for h in handles:
+                h.remove()
 
     @staticmethod
     def _clean_reply_text(reply_text: str) -> str:
@@ -1346,7 +1658,6 @@ class Gemma4VocalCordSurgeon:
         tok = getattr(processor_or_tokenizer, "tokenizer", processor_or_tokenizer)
         eos_ids = self.resolve_eos_token_ids(tok)
         abort_evt = threading.Event()
-        stop_criteria = self.build_stopping_criteria(abort_evt, input_len)
 
         layer_telemetry: Dict[int, LayerInjectionTelemetry] = {}
         cort_ctx = (
@@ -1355,34 +1666,23 @@ class Gemma4VocalCordSurgeon:
             else nullcontext()
         )
         with self.gen_lock, cort_ctx:
-            handles = (
-                self._attach_midlayer_hooks(
-                    drive_6d,
-                    steer_gain=steer_gain,
-                    telemetry_out=layer_telemetry,
-                    is_alive=bool(soul.soma.is_alive),
-                )
-                if steer_enabled
-                else []
+            gen_out = self.run_steered_generation(
+                inputs=inputs,
+                drive_6d=drive_6d,
+                steer_enabled=steer_enabled,
+                steer_gain=steer_gain,
+                telemetry_out=layer_telemetry,
+                max_new_tokens=max_new_tokens,
+                do_sample=(temperature > 0.05),
+                temperature=max(0.05, float(temperature)),
+                top_p=0.92,
+                top_k=50,
+                repetition_penalty=1.12,
+                eos_ids=eos_ids,
+                abort_event=abort_evt,
+                tok=tok,
+                is_alive=bool(soul.soma.is_alive),
             )
-            gen_kwargs: Dict[str, Any] = {
-                "max_new_tokens": max_new_tokens,
-                "do_sample": (temperature > 0.05),
-                "temperature": max(0.05, float(temperature)),
-                "top_p": 0.92,
-                "top_k": 50,
-            }
-            if eos_ids:
-                gen_kwargs["eos_token_id"] = eos_ids
-            if stop_criteria is not None:
-                gen_kwargs["stopping_criteria"] = stop_criteria
-            if hasattr(self.model, "generation_config"):
-                gen_kwargs["repetition_penalty"] = 1.12
-            try:
-                gen_out = self.model.generate(**inputs, **gen_kwargs)
-            finally:
-                for h in handles:
-                    h.remove()
 
         new_ids = gen_out[0][input_len:]
         if hasattr(processor_or_tokenizer, "parse_response"):
@@ -1465,7 +1765,6 @@ class Gemma4VocalCordSurgeon:
         input_len = int(inputs["input_ids"].shape[-1])
         eos_ids = self.resolve_eos_token_ids(tok)
         abort_evt = threading.Event()
-        stop_criteria = self.build_stopping_criteria(abort_evt, input_len)
 
         def _worker() -> None:
             cort_ctx = (
@@ -1480,32 +1779,25 @@ class Gemma4VocalCordSurgeon:
                     except Exception:
                         pass
                     return
-                handles = (
-                    self._attach_midlayer_hooks(
-                        drive_6d,
+                try:
+                    out_ids = self.run_steered_generation(
+                        inputs=inputs,
+                        drive_6d=drive_6d,
+                        steer_enabled=steer_enabled,
                         steer_gain=steer_gain,
                         telemetry_out=layer_telemetry,
+                        max_new_tokens=max_new_tokens,
+                        do_sample=(temperature > 0.05),
+                        temperature=max(0.05, float(temperature)),
+                        top_p=0.92,
+                        top_k=50,
+                        repetition_penalty=1.12,
+                        eos_ids=eos_ids,
+                        abort_event=abort_evt,
+                        tok=tok,
                         is_alive=bool(soul.soma.is_alive),
+                        streamer=streamer,
                     )
-                    if steer_enabled
-                    else []
-                )
-                gen_kwargs: Dict[str, Any] = {
-                    "max_new_tokens": max_new_tokens,
-                    "do_sample": (temperature > 0.05),
-                    "temperature": max(0.05, float(temperature)),
-                    "top_p": 0.92,
-                    "top_k": 50,
-                    "streamer": streamer,
-                }
-                if eos_ids:
-                    gen_kwargs["eos_token_id"] = eos_ids
-                if stop_criteria is not None:
-                    gen_kwargs["stopping_criteria"] = stop_criteria
-                if hasattr(self.model, "generation_config"):
-                    gen_kwargs["repetition_penalty"] = 1.12
-                try:
-                    out_ids = self.model.generate(**inputs, **gen_kwargs)
                     gen_result["tokens"] = int(out_ids[0].shape[-1]) - input_len
                 except Exception as exc:
                     gen_result["error"] = str(exc)
@@ -1513,9 +1805,6 @@ class Gemma4VocalCordSurgeon:
                         streamer.end()
                     except Exception:
                         pass
-                finally:
-                    for h in handles:
-                        h.remove()
 
         worker_thread = threading.Thread(target=_worker, daemon=True)
         worker_thread.start()

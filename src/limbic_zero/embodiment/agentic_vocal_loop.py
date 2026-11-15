@@ -160,11 +160,11 @@ class EmbodiedAgenticRunner:
             joined = "\n".join(str(m.get("content", "")) for m in messages)
             inputs = processor_or_tokenizer(joined, return_tensors="pt")
 
-        dev_inputs = {k: v.to(self.surgeon.device) for k, v in inputs.items() if isinstance(v, torch.Tensor)}
+        cpu_inputs = {k: v.detach().cpu() for k, v in inputs.items() if isinstance(v, torch.Tensor)}
 
         starts_in_thought = False
-        if hasattr(tok, "decode") and "input_ids" in dev_inputs:
-            tail_ids = dev_inputs["input_ids"][0][-28:]
+        if hasattr(tok, "decode") and "input_ids" in cpu_inputs:
+            tail_ids = cpu_inputs["input_ids"][0][-28:]
             try:
                 tail_str = tok.decode(tail_ids, skip_special_tokens=False)
                 # Inspect only the active trailing model prompt after the latest `<|turn>model`
@@ -195,28 +195,26 @@ class EmbodiedAgenticRunner:
                         add_special_tokens=False,
                         return_tensors="pt",
                     )
-                    anchor_ids = anchor_enc["input_ids"].to(self.surgeon.device)
+                    anchor_ids = anchor_enc["input_ids"].detach().cpu()
                     if anchor_ids.ndim == 2 and anchor_ids.shape[1] > 0:
-                        dev_inputs["input_ids"] = torch.cat([dev_inputs["input_ids"], anchor_ids], dim=-1)
-                        if "attention_mask" in dev_inputs:
+                        cpu_inputs["input_ids"] = torch.cat([cpu_inputs["input_ids"], anchor_ids], dim=-1)
+                        if "attention_mask" in cpu_inputs:
                             ones_mask = torch.ones(
-                                (dev_inputs["attention_mask"].shape[0], anchor_ids.shape[1]),
-                                dtype=dev_inputs["attention_mask"].dtype,
-                                device=self.surgeon.device,
+                                (cpu_inputs["attention_mask"].shape[0], anchor_ids.shape[1]),
+                                dtype=cpu_inputs["attention_mask"].dtype,
                             )
-                            dev_inputs["attention_mask"] = torch.cat(
-                                [dev_inputs["attention_mask"], ones_mask], dim=-1
+                            cpu_inputs["attention_mask"] = torch.cat(
+                                [cpu_inputs["attention_mask"], ones_mask], dim=-1
                             )
-                        if "token_type_ids" in dev_inputs:
+                        if "token_type_ids" in cpu_inputs:
                             zeros_tt = torch.zeros(
-                                (dev_inputs["token_type_ids"].shape[0], anchor_ids.shape[1]),
-                                dtype=dev_inputs["token_type_ids"].dtype,
-                                device=self.surgeon.device,
+                                (cpu_inputs["token_type_ids"].shape[0], anchor_ids.shape[1]),
+                                dtype=cpu_inputs["token_type_ids"].dtype,
                             )
-                            dev_inputs["token_type_ids"] = torch.cat(
-                                [dev_inputs["token_type_ids"], zeros_tt], dim=-1
+                            cpu_inputs["token_type_ids"] = torch.cat(
+                                [cpu_inputs["token_type_ids"], zeros_tt], dim=-1
                             )
-                        tail_str = tok.decode(dev_inputs["input_ids"][0][-24:], skip_special_tokens=False)
+                        tail_str = tok.decode(cpu_inputs["input_ids"][0][-24:], skip_special_tokens=False)
 
                 if (
                     tail_str.endswith("<|channel>thought\n")
@@ -227,6 +225,10 @@ class EmbodiedAgenticRunner:
             except Exception:
                 pass
 
+        if getattr(self.surgeon, "tpu_generator", None) is not None:
+            return cpu_inputs, starts_in_thought
+
+        dev_inputs = {k: v.to(self.surgeon.device) for k, v in cpu_inputs.items()}
         return dev_inputs, starts_in_thought
 
     def stream_embodied_turn(
@@ -299,7 +301,10 @@ class EmbodiedAgenticRunner:
         tok = getattr(processor_or_tokenizer, "tokenizer", processor_or_tokenizer)
         supports_streamer = (
             not tok.__class__.__name__.startswith(("_Mock", "_Mini", "_State"))
-            and hasattr(self.surgeon.model, "generation_config")
+            and (
+                hasattr(self.surgeon.model, "generation_config")
+                or getattr(self.surgeon, "tpu_generator", None) is not None
+            )
         )
         TextIteratorStreamer = None
         if supports_streamer:
@@ -339,19 +344,13 @@ class EmbodiedAgenticRunner:
             eos_ids = self.surgeon.resolve_eos_token_ids(tok)
             abort_evt = threading.Event()
             tool_span_state: Dict[str, bool] = {"in_tool_call": False}
-            stop_criteria = self.surgeon.build_stopping_criteria(
-                abort_evt,
-                input_len,
-                tok=tok,
-                tool_span_state=tool_span_state,
-            )
 
             if supports_streamer:
                 streamer = TextIteratorStreamer(
                     tok,
                     skip_prompt=True,
                     skip_special_tokens=False,
-                    timeout=90.0,
+                    timeout=180.0,
                 )
                 gen_box: Dict[str, Any] = {"tokens": 0, "error": None}
                 chunk_q: "queue.Queue[Optional[str]]" = queue.Queue()
@@ -366,40 +365,30 @@ class EmbodiedAgenticRunner:
                         with torch.no_grad(), self.surgeon.gen_lock, cort_ctx:
                             if abort_evt.is_set():
                                 return
-                            handles = (
-                                self.surgeon._attach_midlayer_hooks(
-                                    drive_6d,
+                            try:
+                                out = self.surgeon.run_steered_generation(
+                                    inputs=inputs,
+                                    drive_6d=drive_6d,
+                                    steer_enabled=steer_enabled,
                                     steer_gain=steer_gain,
                                     telemetry_out=layer_telemetry,
+                                    max_new_tokens=step_budget,
+                                    do_sample=(temperature > 0.05),
+                                    temperature=max(0.05, float(temperature)),
+                                    top_p=0.94,
+                                    top_k=64,
+                                    repetition_penalty=1.12,
+                                    eos_ids=eos_ids,
+                                    abort_event=abort_evt,
+                                    tok=tok,
                                     is_alive=bool(soul.soma.is_alive),
                                     motor_decision_mode=motor_decision_now,
                                     tool_span_state=tool_span_state,
+                                    streamer=streamer,
                                 )
-                                if steer_enabled
-                                else []
-                            )
-                            gen_kwargs: Dict[str, Any] = {
-                                "max_new_tokens": step_budget,
-                                "do_sample": (temperature > 0.05),
-                                "temperature": max(0.05, float(temperature)),
-                                "top_p": 0.94,
-                                "top_k": 64,
-                                "streamer": streamer,
-                            }
-                            if eos_ids:
-                                gen_kwargs["eos_token_id"] = eos_ids
-                            if stop_criteria is not None:
-                                gen_kwargs["stopping_criteria"] = stop_criteria
-                            if hasattr(self.surgeon.model, "generation_config"):
-                                gen_kwargs["repetition_penalty"] = 1.12
-                            try:
-                                out = self.surgeon.model.generate(**inputs, **gen_kwargs)
                                 gen_box["tokens"] = max(0, int(out[0].shape[-1]) - input_len)
                             except Exception as exc:
                                 gen_box["error"] = str(exc)
-                            finally:
-                                for h in handles:
-                                    h.remove()
                     finally:
                         try:
                             streamer.end()
@@ -477,35 +466,38 @@ class EmbodiedAgenticRunner:
                 round_tool_calls = list(inc_parser.tool_calls)
                 round_body = "".join(inc_parser.body_parts).strip()
             else:
-                # Deterministic synchronous path for lightweight unit-test mocks
+                # Deterministic synchronous path for lightweight unit-test mocks & TPU mock tests
                 cort_ctx = (
                     cort_surg.activate_soul_cortex(soul.organism_id, enabled=plastic_active)
                     if cort_surg is not None
                     else nullcontext()
                 )
+                has_tpu_gen = getattr(self.surgeon, "tpu_generator", None) is not None
+                sync_do_sample = (
+                    (temperature > 0.05)
+                    if (has_tpu_gen or hasattr(self.surgeon.model, "generation_config"))
+                    else False
+                )
                 with torch.no_grad(), self.surgeon.gen_lock, cort_ctx:
-                    handles = (
-                        self.surgeon._attach_midlayer_hooks(
-                            drive_6d,
-                            steer_gain=steer_gain,
-                            telemetry_out=layer_telemetry,
-                            is_alive=bool(soul.soma.is_alive),
-                            motor_decision_mode=motor_decision_now,
-                            tool_span_state=tool_span_state,
-                        )
-                        if steer_enabled
-                        else []
+                    out = self.surgeon.run_steered_generation(
+                        inputs=inputs,
+                        drive_6d=drive_6d,
+                        steer_enabled=steer_enabled,
+                        steer_gain=steer_gain,
+                        telemetry_out=layer_telemetry,
+                        max_new_tokens=step_budget,
+                        do_sample=sync_do_sample,
+                        temperature=max(0.05, float(temperature)),
+                        top_p=0.94,
+                        top_k=64,
+                        repetition_penalty=1.12,
+                        eos_ids=eos_ids,
+                        abort_event=abort_evt,
+                        tok=tok,
+                        is_alive=bool(soul.soma.is_alive),
+                        motor_decision_mode=motor_decision_now,
+                        tool_span_state=tool_span_state,
                     )
-                    sync_kwargs: Dict[str, Any] = {"max_new_tokens": step_budget}
-                    if eos_ids:
-                        sync_kwargs["eos_token_id"] = eos_ids
-                    if stop_criteria is not None:
-                        sync_kwargs["stopping_criteria"] = stop_criteria
-                    try:
-                        out = self.surgeon.model.generate(**inputs, **sync_kwargs)
-                    finally:
-                        for h in handles:
-                            h.remove()
                 new_ids = out[0][input_len:]
                 total_generated_tokens += int(new_ids.shape[0])
                 raw_dec = tok.decode(new_ids, skip_special_tokens=False)

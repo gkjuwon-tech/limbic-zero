@@ -1,10 +1,10 @@
-"""Stage 12 Live Production Launcher: Unified Living Human Soul ('HUMAN-01') × Gemma-4-31B-IT.
+"""Stage 14 Live Production Launcher: Unified Living Human Soul ('HUMAN-01') × Gemma-4-31B-IT.
 
-Loads ``google/gemma-4-31B-it`` (60 layers, 5376D) in native ``bfloat16``, extracts & KL-calibrates
-the 6D -> 5376D somatic steering subspace (`subspace_v6`) across Global Full-Attention middle layers,
-hydrates the unified evolved organism ``HUMAN-01`` (auto-resuming from ``latest.soul.pt`` &
-``latest.cortex.pt`` when available), runs continuous autonomous foraging + cortical LoRA weight
-surgery + sleep consolidation + checkpoint generation in the background, and serves the 1:1 chat UI.
+Supports both:
+  - **Google Cloud TPU v5e-8 (`--backend tpu_spmd`)**: Zero-quantization pure ``bfloat16`` (`58.3 GiB`)
+    sharded across all 8 TPU chips (`128 GB` aggregate HBM) via PyTorch/XLA GSPMD + ``XLAPinnedStaticCache``
+    bucketed prefill & `O(1)` `dynamic-update-slice` decode.
+  - **CUDA / CPU (`--backend cuda` / `cpu`)**: Standard HuggingFace `device_map="auto"` / NF4 fallback.
 """
 
 from __future__ import annotations
@@ -12,10 +12,17 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import time
-from typing import Dict
+from typing import Dict, Optional
 
 import torch
 
+from limbic_zero.tpu import (
+    TPUBucketedStaticGenerator,
+    initialize_tpu_spmd_runtime,
+    is_tpu_xla_available,
+    resolve_kaggle_or_hf_model_source,
+    shard_model_to_tpu_spmd,
+)
 from limbic_zero.vocal_cord import (
     CalibratedSubspaceBundle,
     ContrastiveSubspaceExtractor,
@@ -60,14 +67,34 @@ def _start_cloudflare_quick_tunnel(local_port: int, hub: VocalCordRuntimeHub) ->
             if m:
                 url = m.group(0)
                 hub.public_urls["cloudflare"] = url
-                print(f"[STAGE 12] CLOUDFLARE PUBLIC URL: {url}", flush=True)
+                print(f"[STAGE 14] CLOUDFLARE PUBLIC URL: {url}", flush=True)
 
     threading.Thread(target=_runner, daemon=True).start()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="LIMBIC-0 Unified Soul × Gemma-4-31B-IT Server")
+    parser = argparse.ArgumentParser(description="LIMBIC-0 Unified Soul × Gemma-4-31B-IT Server (TPU v5e-8 / CUDA)")
     parser.add_argument("--model-id", type=str, default="google/gemma-4-31B-it")
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default="auto",
+        choices=("auto", "tpu_spmd", "cuda", "cpu"),
+        help="Accelerator execution backend (`auto` prefers TPU GSPMD -> CUDA -> CPU)",
+    )
+    parser.add_argument("--max-cache-len", type=int, default=2560, help="Pinned static KV-cache length on TPU")
+    parser.add_argument(
+        "--xla-cache-dir",
+        type=str,
+        default="/kaggle/working/xla_compile_cache",
+        help="Persistent XLA HLO compilation cache directory",
+    )
+    parser.add_argument(
+        "--warmup-buckets",
+        type=str,
+        default="128,256,512",
+        help="Comma-separated prefill buckets to pre-compile on TPU before opening background daemons",
+    )
     parser.add_argument("--souls-dir", type=str, default="checkpoints/souls")
     parser.add_argument("--subspace-cache", type=str, default="checkpoints/souls/gemma4_31b_subspace_v6.pt")
     parser.add_argument("--host", type=str, default="0.0.0.0")
@@ -81,19 +108,41 @@ def main() -> None:
     parser.add_argument("--disable-autonomous-evolution", action="store_true")
     parser.add_argument("--legacy-three-souls", action="store_true", help="Load legacy 3-soul comparison bank")
     parser.add_argument("--enable-cloudflare", action="store_true", help="Launch cloudflared tunnel automatically")
-    parser.add_argument("--load-in-4bit", action="store_true", help="Load model in NF4 4-bit (for Kaggle 2xT4 / Colab T4)")
+    parser.add_argument("--load-in-4bit", action="store_true", help="Load model in NF4 4-bit (CUDA only)")
     args = parser.parse_args()
 
+    if args.backend == "auto":
+        if is_tpu_xla_available():
+            active_backend = "tpu_spmd"
+        elif torch.cuda.is_available():
+            active_backend = "cuda"
+        else:
+            active_backend = "cpu"
+    else:
+        active_backend = args.backend
+
     t0 = time.perf_counter()
-    quant_label = "NF4 4-bit" if args.load_in_4bit else "bfloat16"
-    print(f"[STAGE 13] Loading processor & frozen {args.model_id} in {quant_label}...", flush=True)
+    spmd_ctx = None
+    model_source = args.model_id
+
+    if active_backend == "tpu_spmd":
+        spmd_ctx = initialize_tpu_spmd_runtime(cache_dir=args.xla_cache_dir or None)
+        model_source = resolve_kaggle_or_hf_model_source(args.model_id)
+        print(
+            f"[STAGE 14] Initialized PyTorch/XLA TPU GSPMD across {spmd_ctx.num_devices} chips "
+            f"(device={spmd_ctx.device}, model_source={model_source})...",
+            flush=True,
+        )
+    else:
+        quant_label = "NF4 4-bit" if args.load_in_4bit else "bfloat16"
+        print(f"[STAGE 14] Loading processor & frozen {args.model_id} on {active_backend} ({quant_label})...", flush=True)
 
     try:
         from transformers import AutoProcessor
-        processor = AutoProcessor.from_pretrained(args.model_id)
+        processor = AutoProcessor.from_pretrained(model_source)
     except Exception:
         from transformers import AutoTokenizer
-        processor = AutoTokenizer.from_pretrained(args.model_id)
+        processor = AutoTokenizer.from_pretrained(model_source)
 
     tok_obj = getattr(processor, "tokenizer", processor)
 
@@ -103,30 +152,57 @@ def main() -> None:
     except Exception:
         from transformers import AutoModelForCausalLM
         model_cls = AutoModelForCausalLM
-    dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-    load_kwargs: Dict[str, object] = {
-        "dtype": dtype,
-        "device_map": "auto" if torch.cuda.is_available() else None,
-    }
-    if args.load_in_4bit and torch.cuda.is_available():
-        from transformers import BitsAndBytesConfig
 
-        compute_dt = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        load_kwargs["quantization_config"] = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=compute_dt,
+    if active_backend == "tpu_spmd":
+        assert spmd_ctx is not None
+        print(f"[STAGE 14] Loading pure bfloat16 weights into Host Xeon RAM from {model_source}...", flush=True)
+        try:
+            model = model_cls.from_pretrained(
+                model_source,
+                dtype=torch.bfloat16,
+                low_cpu_mem_usage=True,
+                attn_implementation="eager",
+            )
+        except TypeError:
+            model = model_cls.from_pretrained(
+                model_source,
+                torch_dtype=torch.bfloat16,
+                low_cpu_mem_usage=True,
+            )
+        model.eval()
+        print(f"[STAGE 14] Streaming & GSPMD-sharding parameters onto {spmd_ctx.num_devices} TPU v5e chips...", flush=True)
+        shard_report = shard_model_to_tpu_spmd(
+            model=model,
+            spmd_ctx=spmd_ctx,
+            drop_unused_multimodal_towers=True,
+            target_dtype=torch.bfloat16,
         )
-    model = model_cls.from_pretrained(args.model_id, **load_kwargs)
-    model.eval()
-    for p in model.parameters():
-        p.requires_grad_(False)
+        print(f"[STAGE 14] TPU GSPMD Sharding Complete: {shard_report}", flush=True)
+    else:
+        dtype = torch.bfloat16 if active_backend == "cuda" else torch.float32
+        load_kwargs: Dict[str, object] = {
+            "dtype": dtype,
+            "device_map": "auto" if active_backend == "cuda" else None,
+        }
+        if args.load_in_4bit and active_backend == "cuda":
+            from transformers import BitsAndBytesConfig
+
+            compute_dt = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=compute_dt,
+            )
+        model = model_cls.from_pretrained(model_source, **load_kwargs)
+        model.eval()
+        for p in model.parameters():
+            p.requires_grad_(False)
 
     num_layers = len(resolve_decoder_layers(model))
     cfg = Gemma4SteeringConfig.for_model(args.model_id, num_hidden_layers=num_layers)
     print(
-        f"[STAGE 12] Model loaded in {time.perf_counter() - t0:.1f}s "
+        f"[STAGE 14] Model ready in {time.perf_counter() - t0:.1f}s "
         f"(layers={num_layers}, target_layers={cfg.target_layers}). Preparing subspace_v6...",
         flush=True,
     )
@@ -134,7 +210,7 @@ def main() -> None:
     cache_path = Path(args.subspace_cache)
     subspace = None
     if cache_path.is_file():
-        print(f"[STAGE 12] Loading cached calibrated subspace from {cache_path}...", flush=True)
+        print(f"[STAGE 14] Loading cached calibrated subspace from {cache_path}...", flush=True)
         loaded = CalibratedSubspaceBundle.load(cache_path)
         if (
             loaded.format_version == "limbic0.gemma4_subspace.v6"
@@ -144,14 +220,14 @@ def main() -> None:
             subspace = loaded
         else:
             print(
-                f"[STAGE 12] Cached subspace mismatch (format={loaded.format_version}, model={loaded.model_id}). "
+                f"[STAGE 14] Cached subspace mismatch (format={loaded.format_version}, model={loaded.model_id}). "
                 f"Re-extracting subspace_v6...",
                 flush=True,
             )
 
     if subspace is None:
         print(
-            f"[STAGE 12] Extracting 6D Somatic Subspace + Everyday Human Speech Carrier on Layers {cfg.target_layers}...",
+            f"[STAGE 14] Extracting 6D Somatic Subspace + Everyday Human Speech Carrier on Layers {cfg.target_layers}...",
             flush=True,
         )
 
@@ -205,7 +281,7 @@ def main() -> None:
         )
         subspace.save(cache_path)
         print(
-            f"[STAGE 12] Calibrated subspace_v6 saved! target_layers={subspace.target_layers}, "
+            f"[STAGE 14] Calibrated subspace_v6 saved! target_layers={subspace.target_layers}, "
             f"norm_fraction={subspace.calibrated_norm_fraction:.4f}, "
             f"kl_curve={subspace.calibration_kl_curve}",
             flush=True,
@@ -233,10 +309,10 @@ def main() -> None:
         latest_evolved_soul = (evo_dir / "latest.soul.pt") if evo_dir is not None else None
         if latest_evolved_soul is not None and latest_evolved_soul.is_file():
             soul_ckpt_path = latest_evolved_soul
-            print(f"[STAGE 12] Resuming unified organism HUMAN-01 from evolved checkpoint: {soul_ckpt_path}", flush=True)
+            print(f"[STAGE 14] Resuming unified organism HUMAN-01 from evolved checkpoint: {soul_ckpt_path}", flush=True)
         else:
             soul_ckpt_path = souls_dir / "human01_ordinary_evolved.soul.pt"
-            print(f"[STAGE 12] Hydrating unified organism HUMAN-01 from seed capsule: {soul_ckpt_path}", flush=True)
+            print(f"[STAGE 14] Hydrating unified organism HUMAN-01 from seed capsule: {soul_ckpt_path}", flush=True)
 
         souls = {
             "HUMAN-01": LivingSoulOrganism(
@@ -245,7 +321,20 @@ def main() -> None:
             ),
         }
 
-    surgeon = Gemma4VocalCordSurgeon(model=model, subspace=subspace, config=cfg)
+    tpu_gen: Optional[TPUBucketedStaticGenerator] = None
+    if active_backend == "tpu_spmd":
+        tpu_gen = TPUBucketedStaticGenerator(
+            model=model,
+            spmd_ctx=spmd_ctx,
+            max_cache_len=args.max_cache_len,
+        )
+
+    surgeon = Gemma4VocalCordSurgeon(
+        model=model,
+        subspace=subspace,
+        config=cfg,
+        tpu_generator=tpu_gen,
+    )
     pub_urls = {"cloudflare": args.public_url} if args.public_url else {}
     hub = VocalCordRuntimeHub(
         surgeon=surgeon,
@@ -259,6 +348,31 @@ def main() -> None:
         evolution_idle_grace_sec=args.evolution_idle_grace_sec,
         evolution_cycle_interval_sec=args.evolution_interval_sec,
     )
+
+    if tpu_gen is not None and args.warmup_buckets.strip():
+        warmup_list = [int(x.strip()) for x in args.warmup_buckets.split(",") if x.strip().isdigit()]
+        if warmup_list:
+            print(f"[STAGE 14] Pre-compiling XLA GSPMD prefill+decode graphs for buckets {warmup_list}...", flush=True)
+            primary_soul = hub.souls[hub.primary_soul_id]
+            w_drive, _ = primary_soul.compute_6d_steering_vector()
+
+            def _prep_warmup(d_len: int) -> None:
+                surgeon._prepare_persistent_xla_turn_buffers(
+                    drive_6d=w_drive,
+                    steer_gain=1.0,
+                    steer_enabled=True,
+                    prompt_len=d_len,
+                    is_alive=True,
+                    motor_decision_mode=False,
+                )
+
+            with surgeon.gen_lock, hub.cortical_surgeon.activate_soul_cortex(hub.primary_soul_id, enabled=True):
+                try:
+                    w_timings = tpu_gen.warmup_xla_graphs(buckets=warmup_list, prepare_hooks_fn=_prep_warmup)
+                finally:
+                    surgeon._xla_active_gate.zero_()
+            print(f"[STAGE 14] XLA GSPMD Warmup Complete (0s live compile latency): {w_timings}", flush=True)
+
     hub.start_background_heartbeats()
 
     boot_pid_file = Path("/tmp/limbic0_boot_http.pid")
@@ -278,7 +392,7 @@ def main() -> None:
         _start_cloudflare_quick_tunnel(args.port, hub)
 
     srv = VocalCordHTTPServer((args.host, args.port), hub=hub)
-    print(f"[STAGE 12] UNIFIED HUMAN SOUL SERVER LIVE ON http://{args.host}:{args.port}", flush=True)
+    print(f"[STAGE 14] UNIFIED HUMAN SOUL SERVER LIVE ON http://{args.host}:{args.port} (backend={active_backend})", flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
@@ -290,3 +404,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
