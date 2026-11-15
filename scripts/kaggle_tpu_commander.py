@@ -473,7 +473,7 @@ try:
 except Exception:
     subprocess.run(
         [sys.executable, "-m", "pip", "install", "-q", "-U",
-         "transformers>=5.0.0", "accelerate", "huggingface_hub", "hf_transfer", "safetensors", "pillow"],
+         "transformers>=5.0.0", "accelerate", "huggingface_hub", "hf_transfer", "safetensors", "pillow", "jinja2>=3.1.6", "sentencepiece"],
         check=True,
     )
 
