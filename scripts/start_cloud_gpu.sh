@@ -2,7 +2,7 @@
 set -euo pipefail
 
 export HF_HOME="/workspace/hf_cache"
-export HF_HUB_ENABLE_HF_TRANSFER="1"
+export HF_XET_HIGH_PERFORMANCE="1"
 export PYTHONUNBUFFERED="1"
 mkdir -p "$HF_HOME" /workspace/logs /workspace/habitat /workspace/plasticity /workspace/evolution
 
@@ -49,8 +49,8 @@ cd /workspace/app
 
 echo "[BOOT] Installing Python runtime packages..."
 pip uninstall -y torchaudio torchvision >/dev/null 2>&1 || true
-pip install -q --upgrade "transformers>=5.5.0" accelerate safetensors sentencepiece protobuf huggingface_hub hf_transfer
-pip install -q --no-deps -e /workspace/app
+pip install --root-user-action=ignore -q --upgrade "transformers>=5.5.0" "jinja2>=3.1.6" accelerate safetensors sentencepiece protobuf huggingface_hub pillow
+pip install --root-user-action=ignore -q --no-deps -e /workspace/app
 
 echo "[BOOT] Launching run_stage5_gemma4_vocal_cord.py (google/gemma-4-31B-it)..."
 exec python3 /workspace/app/scripts/run_stage5_gemma4_vocal_cord.py \
