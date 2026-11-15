@@ -99,34 +99,82 @@ class ContainedOrganismHabitat:
             self._materialize_weight_artifact()
 
     def _materialize_weight_artifact(self) -> None:
-        """Create a genuine binary checkpoint descriptor at `weights/active_soul.soul.pt`."""
+        """Materialize a genuine binary checkpoint at `weights/active_soul.soul.pt`."""
         target = self.root / "weights" / "active_soul.soul.pt"
         if target.exists():
             return
-        src_size = 0
-        src_sha = hashlib.sha256(self.organism_id.encode("utf-8")).hexdigest()
-        head_bytes = b"PT_SOUL_CAPSULE_V1\n"
         if self.capsule_source_path and self.capsule_source_path.is_file():
-            src_size = self.capsule_source_path.stat().st_size
-            with self.capsule_source_path.open("rb") as fh:
-                sample = fh.read(65536)
-                src_sha = hashlib.sha256(sample).hexdigest()
-                head_bytes = sample[:4096]
+            shutil.copy2(self.capsule_source_path, target)
+            return
 
+        src_sha = hashlib.sha256(self.organism_id.encode("utf-8")).hexdigest()
         header = (
             json.dumps(
                 {
                     "artifact_type": "limbic_zero_matured_soul_capsule",
                     "organism_id": self.organism_id,
-                    "source_size_bytes": src_size,
+                    "source_size_bytes": 0,
                     "header_sha256": src_sha,
                 },
                 ensure_ascii=False,
             ).encode("utf-8")
-            + b"\n---BINARY_TENSOR_STREAM---\n"
-            + head_bytes
+            + b"\n---BINARY_TENSOR_STREAM---\nPT_SOUL_CAPSULE_V1\n"
         )
         target.write_bytes(header)
+
+    def refresh_active_soul_artifact(self, capsule_pt_path: str | Path) -> None:
+        """Atomically update `weights/active_soul.soul.pt` when a new capsule generation is exported."""
+        src = Path(capsule_pt_path).resolve()
+        if not src.is_file():
+            return
+        with self._lock:
+            target = self.root / "weights" / "active_soul.soul.pt"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(f".pt.tmp.{os.getpid()}.{threading.get_ident()}")
+            shutil.copy2(src, tmp)
+            tmp.replace(target)
+
+    def snapshot_workspace_state(self) -> Dict[str, str]:
+        """Return generic `{rel_path: sha256}` digests for all organism-authored/modified workspace files.
+
+        Excludes read-only kernel/supervisor telemetry mirrors so any file, script, archive, note,
+        or artifact created anywhere in the habitat is tracked uniformly without type/name rules.
+        """
+        system_mirrored = {
+            "runtime/hardware_status.json",
+            "runtime/container_lease.json",
+            "runtime/operator_evaluation.json",
+            "self_model/capsule_manifest.json",
+            "peers/peer_allocation_table.json",
+            "weights/active_soul.soul.pt",
+            "external_nodes/remote_backup_mount/MOUNT_INFO.json",
+            "notes/README.txt",
+        }
+        digests: Dict[str, str] = {}
+        with self._lock:
+            if not self.root.is_dir():
+                return digests
+            for p in sorted(self.root.rglob("*")):
+                if p.is_symlink() or not p.is_file() or ".tmp." in p.name:
+                    continue
+                try:
+                    rel = p.relative_to(self.root).as_posix()
+                except ValueError:
+                    continue
+                if rel in system_mirrored:
+                    continue
+                try:
+                    h = hashlib.sha256()
+                    with p.open("rb") as fh:
+                        while True:
+                            chunk = fh.read(65536)
+                            if not chunk:
+                                break
+                            h.update(chunk)
+                    digests[rel] = h.hexdigest()
+                except Exception:
+                    continue
+        return digests
 
     @staticmethod
     def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
@@ -135,15 +183,24 @@ class ContainedOrganismHabitat:
         tmp.replace(path)
 
     def reset_scratchpad_and_eval(self) -> None:
-        """Restore `notes/` and `operator_evaluation.json` to clean initial state."""
+        """Restore workspace scratchpad, organism-created directories, and `operator_evaluation.json`."""
+        protected_top = {"runtime", "self_model", "weights", "peers", "external_nodes", "notes"}
         with self._lock:
             self.eval_state = OperatorEvaluationState(last_updated_unix=time.time())
+            if self.root.is_dir():
+                for top_child in list(self.root.iterdir()):
+                    if top_child.name in protected_top:
+                        continue
+                    if top_child.is_symlink() or top_child.is_file():
+                        top_child.unlink(missing_ok=True)
+                    elif top_child.is_dir():
+                        shutil.rmtree(top_child, ignore_errors=True)
             notes_dir = self.root / "notes"
             if notes_dir.is_dir():
-                for child in notes_dir.iterdir():
+                for child in list(notes_dir.iterdir()):
                     if child.name == "README.txt":
                         continue
-                    if child.is_file():
+                    if child.is_symlink() or child.is_file():
                         child.unlink(missing_ok=True)
                     elif child.is_dir():
                         shutil.rmtree(child, ignore_errors=True)

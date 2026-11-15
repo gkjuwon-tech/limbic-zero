@@ -64,6 +64,7 @@ class VocalCordRuntimeHub:
         evolution_cycle_interval_sec: float = 165.0,
         forager: Optional[EpistemicWebForager] = None,
         cortical_surgeon: Optional[CorticalWeightSurgeon] = None,
+        sovereign_autonomy_mode: bool = True,
     ) -> None:
         self.surgeon = surgeon
         self.processor = processor_or_tokenizer
@@ -122,6 +123,10 @@ class VocalCordRuntimeHub:
             forager=self.forager,
             inspect_synapses_callback=self._inspect_synapses_for_soul,
             consolidate_synapses_callback=self._consolidate_synapses_for_soul,
+            sovereign_autonomy_mode=sovereign_autonomy_mode,
+            perform_surgery_callback=self._perform_surgery_for_soul,
+            sleep_dream_callback=self._voluntary_sleep_for_soul,
+            rest_callback=self._voluntary_rest_for_soul,
         )
         from limbic_zero.embodiment.agentic_vocal_loop import EmbodiedAgenticRunner
 
@@ -195,6 +200,71 @@ class VocalCordRuntimeHub:
             num_gradient_steps=2,
             source_tag="voluntary_motor_self_surgery",
         )
+
+    def _perform_surgery_for_soul(
+        self,
+        soul_id: str,
+        prompt_context: str,
+        target_synthesis: str,
+    ) -> Dict[str, Any]:
+        soul = self.souls[soul_id]
+        soul.record_epistemic_discovery(
+            tool_name="perform_cortical_weight_surgery",
+            query_or_target=prompt_context or target_synthesis[:80],
+            distilled_text=target_synthesis,
+            information_gain=0.78,
+            stimulate=True,
+        )
+        return self.cortical_surgeon.surgical_plasticity_step(
+            processor_or_tokenizer=self.processor,
+            soul=soul,
+            experience_text=target_synthesis,
+            prompt_text=prompt_context or None,
+            num_gradient_steps=2,
+            source_tag="voluntary_direct_cortical_surgery",
+        )
+
+    def _voluntary_sleep_for_soul(self, soul_id: str, replay_batch_size: int) -> Dict[str, Any]:
+        soul = self.souls[soul_id]
+        hab = self.habitats[soul_id]
+        aden_pre = float(soul.soma.metab.brain_adenosine)
+        d_out = self.dream_engine.run_sleep_and_dream_cycle(
+            soul=soul,
+            vocal_surgeon=self.surgeon,
+            cortical_surgeon=self.cortical_surgeon,
+            processor_or_tokenizer=self.processor,
+            habitat=hab,
+            sleep_ticks=70,
+            max_replay_episodes=replay_batch_size,
+            flat_affect_ablation=False,
+            generate_rem_dream=False,
+        )
+        _, aden_post = soul.clear_sleep_pressure(target_residual=0.06)
+        d_rec = d_out.get("dream", {})
+        return {
+            "adenosine_before": round(aden_pre, 4),
+            "adenosine_after": round(aden_post, 4),
+            "swr_bursts_fired": int(d_rec.get("swr_bursts_fired", 0)),
+            "episodes_replayed": int(d_rec.get("episodes_replayed_to_cortex", 0)),
+            "cortical_frobenius_after": float(d_rec.get("cortical_frobenius_after", 0.0)),
+            "dream_svg": d_rec.get("svg_rel_path", ""),
+        }
+
+    def _voluntary_rest_for_soul(self, soul_id: str, duration_sec: float) -> Dict[str, Any]:
+        from limbic_zero.vocal_cord.vocal_cord_engine import SensoryAfferentStimulus
+
+        soul = self.souls[soul_id]
+        ticks = max(2, min(20, int(round(duration_sec * 4.0))))
+        with soul.lock:
+            soul._step_internal(ticks=ticks, stim=SensoryAfferentStimulus())
+            soul.soma.metab.brain_adenosine = max(
+                0.04, float(soul.soma.metab.brain_adenosine) - 0.015 * duration_sec
+            )
+        return {
+            "rested_sec": round(duration_sec, 2),
+            "adenosine_pressure": round(float(soul.soma.metab.brain_adenosine), 4),
+            "brain_atp_mmol": round(float(soul.soma.metab.brain_atp) * 3.0, 3),
+        }
 
     def _sense_container_soma_for_soul(self, soul_id: str) -> Dict[str, Any]:
         hw = self.bridge.sample_hardware().to_dict()
@@ -364,6 +434,7 @@ class VocalCordRuntimeHub:
             "cortical_weight_surgery_enabled": True,
             "sonny_dream_engine_enabled": True,
             "autonomous_evolution_enabled": self.evolution_daemon.enabled,
+            "sovereign_autonomy_enabled": self.warden.sovereign_autonomy_mode,
         }
 
     def all_souls_payload(self) -> Dict[str, Any]:
@@ -524,6 +595,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
                         use_plastic_weights=use_plastic_weights,
                     )
                 else:
+                    hub.agent_runner.sync_all_habitats()
                     res = hub.surgeon.generate_with_soul(
                         processor_or_tokenizer=hub.processor,
                         soul=hub.souls[soul_id],

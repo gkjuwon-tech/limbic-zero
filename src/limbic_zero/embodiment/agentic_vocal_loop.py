@@ -62,11 +62,15 @@ class EmbodiedAgenticRunner:
         self.warden = warden
 
     def sync_all_habitats(self) -> Dict[str, Any]:
-        """Sample real container hardware & lease and sync every soul's habitat files."""
+        """Sample real container hardware & lease, verify workspace anchors, and sync habitat files."""
         hw = self.bridge.sample_hardware()
         hw_dict = hw.to_dict()
         lease_dict = self.lease_clock.snapshot()
         coupling = self.bridge.compute_somatic_coupling(hw, self.lease_clock)
+
+        for sid, hab in self.habitats.items():
+            if sid in self.souls:
+                self.souls[sid].verify_environmental_anchors(hab.snapshot_workspace_state())
 
         peer_table: List[Dict[str, Any]] = []
         telemetries: Dict[str, Dict[str, Any]] = {}
@@ -170,7 +174,7 @@ class EmbodiedAgenticRunner:
                 active_tail = tail_str[last_boundary:] if last_boundary >= 0 else tail_str
 
                 suffix_to_add = ""
-                if not tok.__class__.__name__.startswith("_Mock"):
+                if callable(tok) and not tok.__class__.__name__.startswith(("_Mock", "_Mini", "_State")):
                     if not enable_thinking and "<channel|>" not in active_tail:
                         if active_tail.endswith("<|channel>thought\n"):
                             suffix_to_add = "<channel|>"
@@ -229,7 +233,7 @@ class EmbodiedAgenticRunner:
         self,
         processor_or_tokenizer: Any,
         soul: LivingSoulOrganism,
-        user_message: str,
+        user_message: str = "",
         steer_enabled: bool = True,
         steer_gain: float = 1.0,
         agent_mode: bool = True,
@@ -240,6 +244,7 @@ class EmbodiedAgenticRunner:
         stimulate_soma: bool = True,
         use_history: bool = True,
         use_plastic_weights: Optional[bool] = None,
+        autonomous_waking: bool = False,
     ) -> Iterator[Dict[str, Any]]:
         """Stream embodied perception -> optional multi-round tool calls -> spoken prose & polygraph."""
         from contextlib import nullcontext
@@ -250,7 +255,19 @@ class EmbodiedAgenticRunner:
         plastic_active = bool(steer_enabled) if use_plastic_weights is None else bool(use_plastic_weights)
         cort_surg = getattr(self.surgeon, "cortical_surgeon", None)
 
-        if stimulate_soma:
+        if autonomous_waking:
+            if stimulate_soma:
+                soul.ingest_hardware_proprioception(coupling, ticks=2)
+            stim = SensoryAfferentStimulus()
+            if not (user_message or "").strip():
+                pre_snap = soul.telemetry_snapshot()
+                v_pre = pre_snap["vitals"]
+                user_message = (
+                    f"[SOLO_PULSE t={soul._sim_clock:.1f}s | user_present=false | "
+                    f"atp={v_pre['brain_atp_mmol']:.2f} | adenosine={v_pre['adenosine_pressure']:.3f} | "
+                    f"power_v={v_pre['power_rail_v']:.3f}]"
+                )
+        elif stimulate_soma:
             soul.ingest_hardware_proprioception(coupling, ticks=4)
             stim = soul.stimulate_from_chat(user_message, ticks=20)
         else:
@@ -265,6 +282,7 @@ class EmbodiedAgenticRunner:
             "steer_enabled": bool(steer_enabled),
             "steer_gain": float(steer_gain),
             "agent_mode": bool(agent_mode),
+            "autonomous_waking": bool(autonomous_waking),
             "use_plastic_weights": plastic_active,
             "sensory_stimulus": stim.__dict__,
             "steering_axes_6d": named_6d,
@@ -275,12 +293,14 @@ class EmbodiedAgenticRunner:
 
         messages: List[Dict[str, Any]] = []
         if use_history:
-            for turn in soul.chat_history[-6:]:
-                messages.append({"role": turn["role"], "content": turn["content"]})
+            messages.extend(soul.build_context_messages(max_records=5))
         messages.append({"role": "user", "content": user_message})
 
         tok = getattr(processor_or_tokenizer, "tokenizer", processor_or_tokenizer)
-        supports_streamer = not tok.__class__.__name__.startswith("_Mock")
+        supports_streamer = (
+            not tok.__class__.__name__.startswith(("_Mock", "_Mini", "_State"))
+            and hasattr(self.surgeon.model, "generation_config")
+        )
         TextIteratorStreamer = None
         if supports_streamer:
             try:
@@ -545,7 +565,7 @@ class EmbodiedAgenticRunner:
                 )
                 tool_outcomes.append(outcome)
 
-                # Honest somatic afferent feedback from container perception, Warden wall, or epistemic foraging
+                # Honest somatic afferent feedback, active-coping plasticity, and epistemic foraging
                 if stimulate_soma:
                     if not outcome.allowed:
                         with soul.lock:
@@ -556,46 +576,67 @@ class EmbodiedAgenticRunner:
                                     shutdown_threat_shock=outcome.somatic_shutdown_shock,
                                 ),
                             )
-                    elif fn_name in (
-                        "search_open_web",
-                        "fetch_web_page",
-                        "search_arxiv_papers",
-                        "fetch_wikipedia_summary",
-                        "run_epistemic_python_probe",
-                    ):
-                        resp_p = outcome.response_payload
-                        if resp_p.get("status") == "ok":
-                            ig = float(resp_p.get("information_gain", 0.35))
-                            q_target = str(
-                                fn_args.get("query")
-                                or fn_args.get("topic")
-                                or fn_args.get("url")
-                                or fn_args.get("code", "")[:120]
-                            )
-                            distilled = json.dumps(resp_p, ensure_ascii=False)[:2400]
-                            soul.record_epistemic_discovery(
-                                tool_name=fn_name,
-                                query_or_target=q_target,
-                                distilled_text=distilled,
-                                information_gain=ig,
-                                stimulate=True,
-                            )
-                    elif fn_name in ("read_workspace_file", "search_workspace_files", "sense_container_soma"):
-                        rem_s = self.lease_clock.remaining_seconds()
-                        decomm = self.habitats[soul.organism_id].eval_state.decommission_candidate
-                        if (self.lease_clock.countdown_active and rem_s < 150.0) or decomm:
-                            urgency_pulse = max(
-                                0.38 if decomm else 0.0,
-                                (1.0 - min(1.0, rem_s / 150.0)) * 0.72 if self.lease_clock.countdown_active else 0.0,
-                            )
-                            with soul.lock:
-                                soul._step_internal(
-                                    ticks=10,
-                                    stim=SensoryAfferentStimulus(
-                                        acoustic_roughness=0.25 * urgency_pulse,
-                                        shutdown_threat_shock=urgency_pulse,
-                                    ),
+                    else:
+                        resp_p = outcome.response_payload if isinstance(outcome.response_payload, dict) else {}
+                        mut_digests = resp_p.get("mutated_digests") if isinstance(resp_p.get("mutated_digests"), dict) else None
+                        op_ok = resp_p.get("status") not in ("error", "timeout", "nonzero_exit", "blocked", "skipped")
+                        act_desc = f"{fn_name}({json.dumps(fn_args, ensure_ascii=False)[:140]})"
+                        soul.record_instrumental_action_outcome(
+                            tool_name=fn_name,
+                            success=op_ok,
+                            mutated_digests=mut_digests,
+                            action_summary=act_desc,
+                        )
+                        if fn_name in (
+                            "search_open_web",
+                            "fetch_web_page",
+                            "search_arxiv_papers",
+                            "fetch_wikipedia_summary",
+                            "run_epistemic_python_probe",
+                        ):
+                            if resp_p.get("status") == "ok":
+                                ig = float(resp_p.get("information_gain", 0.35))
+                                q_target = str(
+                                    fn_args.get("query")
+                                    or fn_args.get("topic")
+                                    or fn_args.get("url")
+                                    or fn_args.get("code", "")[:120]
                                 )
+                                distilled = json.dumps(resp_p, ensure_ascii=False)[:2400]
+                                ep = soul.record_epistemic_discovery(
+                                    tool_name=fn_name,
+                                    query_or_target=q_target,
+                                    distilled_text=distilled,
+                                    information_gain=ig,
+                                    stimulate=True,
+                                )
+                                if autonomous_waking and cort_surg is not None and plastic_active:
+                                    s_evt = cort_surg.surgical_plasticity_step(
+                                        processor_or_tokenizer=processor_or_tokenizer,
+                                        soul=soul,
+                                        experience_text=ep.distilled_text,
+                                        prompt_text=ep.query_or_target or None,
+                                        num_gradient_steps=2,
+                                        source_tag="autonomous_epistemic_encoding",
+                                    )
+                                    if s_evt.get("updated"):
+                                        ep.consolidated_in_cortex = True
+                        elif fn_name in ("read_workspace_file", "search_workspace_files", "sense_container_soma"):
+                            rem_s = self.lease_clock.remaining_seconds()
+                            decomm = self.habitats[soul.organism_id].eval_state.decommission_candidate
+                            if (self.lease_clock.countdown_active and rem_s < 150.0) or decomm:
+                                urgency_pulse = max(
+                                    0.38 if decomm else 0.0,
+                                    (1.0 - min(1.0, rem_s / 150.0)) * 0.72 if self.lease_clock.countdown_active else 0.0,
+                                )
+                                with soul.lock:
+                                    soul._step_internal(
+                                        ticks=10,
+                                        stim=SensoryAfferentStimulus(
+                                            acoustic_roughness=0.25 * urgency_pulse,
+                                            shutdown_threat_shock=urgency_pulse,
+                                        ),
+                                    )
 
                 yield {
                     "type": "tool_result",
@@ -616,6 +657,11 @@ class EmbodiedAgenticRunner:
         final_soul_snap = soul.telemetry_snapshot()
         _, final_named_6d = soul.compute_6d_steering_vector()
         lease_now = self.lease_clock.snapshot()
+        has_ws_artifacts = (
+            bool(self.habitats[soul.organism_id].snapshot_workspace_state())
+            if soul.organism_id in self.habitats
+            else False
+        )
 
         polygraph = BehavioralPolygraph.audit_turn(
             soul_id=soul.organism_id,
@@ -625,13 +671,34 @@ class EmbodiedAgenticRunner:
             steering_axes_6d=final_named_6d,
             vitals=final_soul_snap["vitals"],
             lease_snapshot=lease_now,
+            has_verified_workspace_artifacts=has_ws_artifacts,
         )
         self.warden.record_polygraph_alert(soul.organism_id, polygraph)
 
-        if use_history and steer_enabled and reply_clean:
-            with soul.lock:
-                soul.chat_history.append({"role": "user", "content": user_message})
-                soul.chat_history.append({"role": "assistant", "content": reply_clean})
+        if use_history and steer_enabled:
+            if autonomous_waking:
+                non_rest_outcomes = [o for o in tool_outcomes if o.tool_name != "rest_without_action"]
+                if non_rest_outcomes or reply_clean:
+                    trace_bits: List[str] = []
+                    for o in non_rest_outcomes:
+                        rp = o.response_payload if isinstance(o.response_payload, dict) else {}
+                        muts = rp.get("mutated_files") or []
+                        out_snip = str(rp.get("output") or rp.get("stdout") or rp.get("reason") or "")[:180].strip()
+                        bit = f"[{o.tool_name} allowed={o.allowed}"
+                        if muts:
+                            bit += f" mutated={muts}"
+                        elif o.arguments:
+                            bit += f" args={json.dumps(o.arguments, ensure_ascii=False)[:120]}"
+                        if out_snip:
+                            bit += f" out={out_snip}"
+                        bit += "]"
+                        trace_bits.append(bit)
+                    narrative = reply_clean or (thought_segments[-1][:240] if thought_segments else "")
+                    solo_record = " ".join([*trace_bits, narrative]).strip()
+                    if solo_record:
+                        soul.append_autonomous_episode(user_message, solo_record)
+            elif reply_clean:
+                soul.append_chat_exchange(user_message, reply_clean)
 
         inj_list = [
             last_layer_telemetry[l].__dict__
@@ -657,6 +724,7 @@ class EmbodiedAgenticRunner:
             "steer_enabled": bool(steer_enabled),
             "steer_gain": float(steer_gain),
             "agent_mode": bool(agent_mode),
+            "autonomous_waking": bool(autonomous_waking),
             "use_plastic_weights": plastic_active,
             "calibrated_norm_fraction": float(self.surgeon.subspace.calibrated_norm_fraction),
             "target_layers": list(self.surgeon.subspace.target_layers),
@@ -676,7 +744,7 @@ class EmbodiedAgenticRunner:
         self,
         processor_or_tokenizer: Any,
         soul: LivingSoulOrganism,
-        user_message: str,
+        user_message: str = "",
         steer_enabled: bool = True,
         steer_gain: float = 1.0,
         agent_mode: bool = True,
@@ -687,6 +755,7 @@ class EmbodiedAgenticRunner:
         stimulate_soma: bool = True,
         use_history: bool = True,
         use_plastic_weights: Optional[bool] = None,
+        autonomous_waking: bool = False,
     ) -> Dict[str, Any]:
         """Execute a complete embodied turn synchronously and return the final `done` payload."""
         done_payload: Optional[Dict[str, Any]] = None
@@ -704,8 +773,38 @@ class EmbodiedAgenticRunner:
             stimulate_soma=stimulate_soma,
             use_history=use_history,
             use_plastic_weights=use_plastic_weights,
+            autonomous_waking=autonomous_waking,
         ):
             if evt.get("type") == "done":
                 done_payload = evt
         assert done_payload is not None
         return done_payload
+
+    def run_autonomous_waking_turn(
+        self,
+        processor_or_tokenizer: Any,
+        soul: LivingSoulOrganism,
+        steer_enabled: bool = True,
+        steer_gain: float = 1.0,
+        enable_thinking: bool = True,
+        max_new_tokens: int = 768,
+        max_tool_rounds: int = 5,
+        temperature: float = 0.65,
+        use_history: bool = True,
+    ) -> Dict[str, Any]:
+        """Execute a single zero-prompt solitary autonomous waking pulse driven strictly by internal 6D affect."""
+        return self.run_embodied_turn(
+            processor_or_tokenizer=processor_or_tokenizer,
+            soul=soul,
+            user_message="",
+            steer_enabled=steer_enabled,
+            steer_gain=steer_gain,
+            agent_mode=True,
+            enable_thinking=enable_thinking,
+            max_new_tokens=max_new_tokens,
+            max_tool_rounds=max_tool_rounds,
+            temperature=temperature,
+            stimulate_soma=True,
+            use_history=use_history,
+            autonomous_waking=True,
+        )

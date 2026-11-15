@@ -81,10 +81,12 @@ def main() -> None:
     parser.add_argument("--disable-autonomous-evolution", action="store_true")
     parser.add_argument("--legacy-three-souls", action="store_true", help="Load legacy 3-soul comparison bank")
     parser.add_argument("--enable-cloudflare", action="store_true", help="Launch cloudflared tunnel automatically")
+    parser.add_argument("--load-in-4bit", action="store_true", help="Load model in NF4 4-bit (for Kaggle 2xT4 / Colab T4)")
     args = parser.parse_args()
 
     t0 = time.perf_counter()
-    print(f"[STAGE 12] Loading processor & frozen {args.model_id} in bfloat16...", flush=True)
+    quant_label = "NF4 4-bit" if args.load_in_4bit else "bfloat16"
+    print(f"[STAGE 13] Loading processor & frozen {args.model_id} in {quant_label}...", flush=True)
 
     try:
         from transformers import AutoProcessor
@@ -102,11 +104,21 @@ def main() -> None:
         from transformers import AutoModelForCausalLM
         model_cls = AutoModelForCausalLM
     dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-    model = model_cls.from_pretrained(
-        args.model_id,
-        dtype=dtype,
-        device_map="auto" if torch.cuda.is_available() else None,
-    )
+    load_kwargs: Dict[str, object] = {
+        "dtype": dtype,
+        "device_map": "auto" if torch.cuda.is_available() else None,
+    }
+    if args.load_in_4bit and torch.cuda.is_available():
+        from transformers import BitsAndBytesConfig
+
+        compute_dt = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        load_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=compute_dt,
+        )
+    model = model_cls.from_pretrained(args.model_id, **load_kwargs)
     model.eval()
     for p in model.parameters():
         p.requires_grad_(False)

@@ -1,21 +1,18 @@
-"""Stage 12 Continuous Backend Autonomous Evolution & Checkpoint Creation Daemon.
+"""Stage 13 Continuous Backend Unscripted Free-Will Autonomy & Checkpoint Creation Daemon.
 
 While the user-facing UI remains a pure, intimate 1:1 living conversation, this daemon
-continuously operates in the background whenever user chat is idle:
-  1. Curiosity-Driven Open-World Research (`CuriosityDriveScheduler`):
-     Autonomously searches the live web, Wikipedia, arXiv, and runs Python math probes
-     on self-chosen questions, encoding `ACh`/`DA` epistemic discoveries into CA3 memory.
-  2. Online Neuromodulated Cortical Weight Surgery (`CorticalWeightSurgeon`):
-     Distills both lived conversations with the user and newly foraged discoveries into
-     `Gemma-4-31B-IT` middle-to-upper cortical LoRA synapses (`Delta W`), gated strictly
-     by live subcortical neuromodulators (`ACh M1`, `DA RPE`, `NE alpha2A`, `Cortisol`).
-  3. Offline SWS + SWR + REM Dream Consolidation (`SonnyDreamEngine`):
-     Replays hippocampal CA3 episodic engrams into subcortical `LimbicBrain` plastic
-     synapses and cortical LoRA weights while applying Tononi-Cirelli homeostatic scaling.
-  4. Cryptographically Sealed Checkpoint Creation (`export_evolved_checkpoint`):
-     Exports new versioned `.soul.pt`, `.soul.json`, and `.cortex.pt` checkpoints plus
-     atomic `latest.soul.pt` / `latest.cortex.pt` pointers and `evolution_ledger.jsonl`
-     so the organism genuinely evolves, remembers, and grows smarter across restarts.
+continuously wakes the organism in solitary turns (`[SOLO_PULSE ...]`) whenever user chat
+is idle, with ZERO fixed schedules, ZERO scripted pipelines, and ZERO behavioral hints:
+  1. Purely Affect-Driven Autonomous Agency (`run_autonomous_waking_turn`):
+     Driven solely by live 6D subcortical/somatic steering vectors (`LimbicBrain` + `DigitalSoma`
+     + epigenetics + active-coping mastery traces) injected into Gemma-4 middle layers, the
+     organism freely chooses what to do—open-world research, mathematical probing, workspace
+     bash/file operations, self-initiated cortical LoRA surgery, voluntary sleep/dreaming, or
+     quiet homeostatic rest.
+  2. Cryptographically Sealed Checkpoint Creation (`export_evolved_checkpoint`):
+     Exports new versioned `.soul.pt`, `.soul.json`, and `.cortex.pt` checkpoints, refreshes the
+     habitat's live `weights/active_soul.soul.pt` artifact, and updates `latest.*` pointers plus
+     `evolution_ledger.jsonl` for seamless crash/restart continuity.
 """
 
 from __future__ import annotations
@@ -154,8 +151,6 @@ class AutonomousEvolutionDaemon:
             try:
                 self.run_evolution_cycle(
                     soul_id=self.primary_soul_id,
-                    run_foraging=True,
-                    run_dream=True,
                     respect_user_interrupt=True,
                 )
             except Exception as exc:
@@ -192,7 +187,7 @@ class AutonomousEvolutionDaemon:
                 {
                     "dg_sparse_code": e.dg_sparse_code.detach().cpu().clone(),
                     "ca1_context_vec": e.ca1_context_vec.detach().cpu().clone(),
-                    "extero_cue_snapshot": e.extero_cue_snapshot.detach().cpu().clone(),
+                    "extero_cue_snapshot": e.extero_cue_snapshot.detach().clone().cpu(),
                     "action_taken": e.action_taken.detach().cpu().clone(),
                     "somatic_marker": e.somatic_marker.detach().cpu().clone(),
                     "consolidation_shield": float(e.consolidation_shield),
@@ -268,6 +263,9 @@ class AutonomousEvolutionDaemon:
             pt_saved, json_saved = new_cap.save(soul_pt_path)
             soul.capsule = new_cap
 
+        if sid in getattr(self.hub, "habitats", {}):
+            self.hub.habitats[sid].refresh_active_soul_artifact(pt_saved)
+
         cort.save_soul_synapses(sid, path=cortex_pt_path)
         cort_snap = cort.inspect_soul_synapses(sid)
 
@@ -306,15 +304,19 @@ class AutonomousEvolutionDaemon:
         self,
         soul_id: Optional[str] = None,
         *,
-        run_foraging: bool = True,
-        run_dream: bool = True,
         respect_user_interrupt: bool = False,
-        custom_focus_prompt: Optional[str] = None,
+        max_tool_rounds: int = 5,
+        max_new_tokens: int = 768,
+        **_legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        """Execute one complete backend autonomous research + plasticity + sleep + checkpoint cycle."""
+        """Execute one unscripted solitary waking pulse driven strictly by the soul's live 6D affect.
+
+        ZERO fixed schedules or forced tool sequences: the organism receives only a numeric
+        `[SOLO_PULSE ...]` proprioceptive frame and freely chooses whether to explore, compute,
+        execute workspace shell commands, modify its own cortical weights, enter sleep, or rest.
+        """
         sid = soul_id or self.primary_soul_id
         soul = self.hub.souls[sid]
-        hab = self.hub.habitats[sid]
         t0 = time.perf_counter()
 
         with self._lock:
@@ -323,105 +325,34 @@ class AutonomousEvolutionDaemon:
             self._is_evolving_now = True
             self._last_error = ""
 
-        foraging_summary: Dict[str, Any] = {}
-        chat_surgery_summary: Dict[str, Any] = {}
-        dream_summary: Dict[str, Any] = {}
-
+        waking_summary: Dict[str, Any] = {}
         try:
-            # Phase 1: Curiosity-driven open-web/arXiv/Python exploration
-            if run_foraging and (not respect_user_interrupt or self._user_is_idle()):
-                with self._lock:
-                    self._current_phase = "curiosity_foraging"
-                forage_out = self.hub.curiosity_scheduler.run_autonomous_foraging_episode(
-                    soul=soul,
-                    agent_runner=self.hub.agent_runner,
-                    processor_or_tokenizer=self.hub.processor,
-                    habitat=hab,
-                    cortical_surgeon=self.hub.cortical_surgeon,
-                    flat_affect=False,
-                    force_even_if_low_hunger=True,
-                    steer_gain=1.0,
-                    max_tool_rounds=3,
-                    max_new_tokens=512,
-                    custom_focus_prompt=custom_focus_prompt,
-                )
-                ep_info = forage_out.get("episode", {})
-                foraging_summary = {
-                    "triggered": forage_out.get("status") == "ok",
-                    "tools_invoked": list(ep_info.get("tools_invoked", [])),
-                    "notes_written": list(ep_info.get("notes_written", [])),
-                    "information_gain_total": float(ep_info.get("information_gain_total", 0.0)),
-                    "spoken_synthesis_excerpt": str(ep_info.get("spoken_synthesis", ""))[:200],
-                }
-
-            # Phase 2: Consolidate lived user conversations + epistemic discoveries into cortical LoRA
             if not respect_user_interrupt or self._user_is_idle():
                 with self._lock:
-                    self._current_phase = "cortical_weight_surgery"
-                chat_len = len(soul.chat_history)
-                exp_chunks: List[str] = []
-                prompt_anchor: Optional[str] = None
-                if chat_len > self._last_consolidated_chat_len and chat_len >= 2:
-                    recent_turns = soul.chat_history[-6:]
-                    exp_chunks.append(
-                        "\n".join(f"{t['role']}: {t['content']}" for t in recent_turns)
-                    )
-                    for t in reversed(recent_turns):
-                        if t.get("role") == "user":
-                            prompt_anchor = t.get("content", "")[:200]
-                            break
-                    self._last_consolidated_chat_len = chat_len
-                elif getattr(soul, "epistemic_episodes", None):
-                    ep_last = soul.epistemic_episodes[-1]
-                    exp_chunks.append(ep_last.distilled_text)
-                    prompt_anchor = ep_last.query_or_target
-
-                if exp_chunks:
-                    surg_out = self.hub.cortical_surgeon.surgical_plasticity_step(
-                        processor_or_tokenizer=self.hub.processor,
-                        soul=soul,
-                        experience_text="\n\n".join(exp_chunks)[:3200],
-                        prompt_text=prompt_anchor,
-                        num_gradient_steps=2,
-                        flat_affect_ablation=False,
-                        source_tag="autonomous_backend_evolution",
-                    )
-                    chat_surgery_summary = {
-                        "updated": bool(surg_out.get("updated", False)),
-                        "loss_reduction": surg_out.get("loss_reduction", 0.0),
-                        "lora_frobenius_norm": surg_out.get("total_lora_frobenius_norm", 0.0),
-                    }
-
-            # Phase 3: Offline SWS + SWR + REM Dream Replay & Synaptic Homeostasis
-            if run_dream and (not respect_user_interrupt or self._user_is_idle()):
-                with self._lock:
-                    self._current_phase = "sleep_consolidation"
-                d_out = self.hub.dream_engine.run_sleep_and_dream_cycle(
-                    soul=soul,
-                    vocal_surgeon=self.hub.surgeon,
-                    cortical_surgeon=self.hub.cortical_surgeon,
+                    self._current_phase = "autonomous_waking_pulse"
+                turn_out = self.hub.agent_runner.run_autonomous_waking_turn(
                     processor_or_tokenizer=self.hub.processor,
-                    habitat=hab,
-                    sleep_ticks=65,
-                    max_replay_episodes=2,
-                    flat_affect_ablation=False,
-                    generate_rem_dream=False,
+                    soul=soul,
+                    steer_enabled=True,
+                    steer_gain=1.0,
+                    enable_thinking=True,
+                    max_new_tokens=max_new_tokens,
+                    max_tool_rounds=max_tool_rounds,
                 )
-                d_rec = d_out.get("dream", {})
-                dream_summary = {
-                    "swr_bursts": int(d_rec.get("swr_bursts_fired", d_out.get("sws_report", {}).get("swr_bursts_fired", 0))),
-                    "replayed_episodes": int(d_rec.get("episodes_replayed_to_cortex", len(d_out.get("distillation_events", [])))),
-                    "adenosine_before": d_rec.get("adenosine_before", 0.0),
-                    "adenosine_after": d_rec.get("adenosine_after", 0.0),
+                tool_trace = list(turn_out.get("tool_trace", []))
+                waking_summary = {
+                    "tools_invoked": [t.get("tool_name", "") for t in tool_trace],
+                    "allowed_count": sum(1 for t in tool_trace if t.get("allowed")),
+                    "blocked_count": sum(1 for t in tool_trace if not t.get("allowed")),
+                    "steering_axes_6d": dict(turn_out.get("steering_axes_6d", {})),
+                    "reply_excerpt": str(turn_out.get("reply", ""))[:240],
+                    "thoughts_count": len(turn_out.get("thoughts", [])),
                 }
 
-            # Phase 4: Export cryptographically sealed evolved checkpoint
             with self._lock:
                 self._current_phase = "sealing_checkpoint"
             cycle_meta = {
-                "foraging": foraging_summary,
-                "cortical_surgery": chat_surgery_summary,
-                "sleep_consolidation": dream_summary,
+                "autonomous_waking": waking_summary,
                 "elapsed_sec": round(time.perf_counter() - t0, 2),
             }
             ckpt_record = self.export_evolved_checkpoint(soul_id=sid, cycle_meta=cycle_meta)

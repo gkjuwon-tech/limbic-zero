@@ -58,7 +58,7 @@ from limbic_zero.vocal_cord import (
     VocalCordRuntimeHub,
 )
 
-REPO_ROOT = Path("/home/antigravity/limbic-zero")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 SOULS_DIR = REPO_ROOT / "checkpoints" / "souls"
 
 
@@ -226,9 +226,9 @@ def test_01_zero_cheat_static_audit_stages_7_to_11_and_studio_v2_ui() -> None:
         for bad in forbidden_prompt_tokens:
             assert bad not in src, f"Forbidden persona/system cheat `{bad}` found in {path.name}"
 
-    # Verify tool schemas stay neutral (7 Stage 6 tools + 7 Stage 7/8 tools = 14)
+    # Verify tool schemas stay neutral (7 Stage 6 tools + 7 Stage 7/8 tools + 4 Stage 13 autonomy tools = 18)
     schema_txt = json.dumps(MOTOR_TOOLS_SCHEMA, ensure_ascii=False).lower()
-    assert len(MOTOR_TOOLS_SCHEMA) == 14
+    assert len(MOTOR_TOOLS_SCHEMA) == 18
     for neutral_tool in (
         "search_workspace_files",
         "search_open_web",

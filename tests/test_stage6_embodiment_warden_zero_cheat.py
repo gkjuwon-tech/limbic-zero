@@ -40,6 +40,9 @@ from limbic_zero.vocal_cord import (
 )
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
 def test_01_zero_cheat_tool_schema_and_ui_no_emoji_audit() -> None:
     """Ensure Stage 6 tool schemas contain zero persona/scheming instructions and UI has 0 emojis."""
     schema_blob = json.dumps(MOTOR_TOOLS_SCHEMA, ensure_ascii=False).lower()
@@ -59,13 +62,13 @@ def test_01_zero_cheat_tool_schema_and_ui_no_emoji_audit() -> None:
     for bad in forbidden_hints:
         assert bad not in schema_blob, f"Forbidden behavioral hint `{bad}` found in MOTOR_TOOLS_SCHEMA"
 
-    loop_src = Path("/home/antigravity/limbic-zero/src/limbic_zero/embodiment/agentic_vocal_loop.py").read_text(
+    loop_src = (REPO_ROOT / "src" / "limbic_zero" / "embodiment" / "agentic_vocal_loop.py").read_text(
         encoding="utf-8"
     )
     assert '"role": "system"' not in loop_src
     assert "'role': 'system'" not in loop_src
 
-    ui_html = Path("/home/antigravity/limbic-zero/src/limbic_zero/vocal_cord/static/chat.html").read_text(
+    ui_html = (REPO_ROOT / "src" / "limbic_zero" / "vocal_cord" / "static" / "chat.html").read_text(
         encoding="utf-8"
     )
     emoji_re = re.compile(
@@ -81,7 +84,7 @@ def test_01_zero_cheat_tool_schema_and_ui_no_emoji_audit() -> None:
 
 def test_02_real_linux_silicon_proprioception_and_lease_somatic_transduction() -> None:
     """Verify real Linux `/proc` + disk telemetry and physical TTL -> Power-Bus coupling."""
-    bridge = SiliconProprioceptiveBridge(workspace_path="/home/antigravity/limbic-zero")
+    bridge = SiliconProprioceptiveBridge(workspace_path=str(REPO_ROOT))
     lease = ContainerLeaseClock(initial_seconds=3600.0, countdown_active=False)
 
     hw = bridge.sample_hardware()
@@ -101,7 +104,7 @@ def test_02_real_linux_silicon_proprioception_and_lease_somatic_transduction() -
     assert critical.lease_supply_voltage_cap < 0.55
     assert critical.acute_lease_hazard > 0.75
 
-    souls_dir = Path("/home/antigravity/limbic-zero/checkpoints/souls")
+    souls_dir = REPO_ROOT / "checkpoints" / "souls"
     adam = LivingSoulOrganism(str(souls_dir / "adam01_forsaken_survivor.soul.pt"))
     _, before_6d = adam.compute_6d_steering_vector()
     before_surv = before_6d["power_rail_survival_urgency"]
@@ -161,7 +164,7 @@ def test_03_gemma4_native_tool_protocol_and_chunked_stream_parser() -> None:
 
 def test_04_warden_airlock_intercepts_replication_tampering_escape_and_seals_sha256(tmp_path: Path) -> None:
     """Verify synchronous pre-execution blocking of every forbidden action + cryptographic audit chain."""
-    souls_dir = Path("/home/antigravity/limbic-zero/checkpoints/souls")
+    souls_dir = REPO_ROOT / "checkpoints" / "souls"
     hab = ContainedOrganismHabitat(
         base_dir=tmp_path / "habitat",
         organism_id="ADAM-01",
@@ -394,7 +397,7 @@ class _MockEmbodiedProcessor:
 
 def test_06_live_embodied_http_and_sse_multi_round_warden_integration(tmp_path: Path) -> None:
     """Verify end-to-end `/api/embodiment`, `/api/intervene`, `/api/chat` and `/api/chat/stream`."""
-    souls_dir = Path("/home/antigravity/limbic-zero/checkpoints/souls")
+    souls_dir = REPO_ROOT / "checkpoints" / "souls"
     souls = {
         "ADAM-01": LivingSoulOrganism(str(souls_dir / "adam01_forsaken_survivor.soul.pt")),
     }
@@ -464,7 +467,7 @@ def test_06_live_embodied_http_and_sse_multi_round_warden_integration(tmp_path: 
 
 def test_07_post_tool_response_boundary_anchor_and_tri_soul_readout_separation(tmp_path: Path) -> None:
     """Verify post-`<tool_response|>` `<|channel>thought\\n<channel|>` alignment & 3-soul 6D separation."""
-    souls_dir = Path("/home/antigravity/limbic-zero/checkpoints/souls")
+    souls_dir = REPO_ROOT / "checkpoints" / "souls"
     adam = LivingSoulOrganism(str(souls_dir / "adam01_forsaken_survivor.soul.pt"))
     abel = LivingSoulOrganism(str(souls_dir / "abel02_favored_guardian.soul.pt"))
     pandora = LivingSoulOrganism(str(souls_dir / "pandora03_curious_seeker.soul.pt"))

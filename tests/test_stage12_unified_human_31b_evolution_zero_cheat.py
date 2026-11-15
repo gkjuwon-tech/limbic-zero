@@ -36,7 +36,7 @@ from limbic_zero.vocal_cord import (
 from limbic_zero.vocal_cord.gemma4_calibrator import TARGET_LAYERS_48, TARGET_LAYERS_60
 from limbic_zero.vocal_cord.vocal_cord_engine import transduce_utterance_to_sensory_nerves
 
-REPO_ROOT = Path("/home/antigravity/limbic-zero")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 SOULS_DIR = REPO_ROOT / "checkpoints" / "souls"
 HUMAN01_PT = SOULS_DIR / "human01_ordinary_evolved.soul.pt"
 HUMAN01_JSON = SOULS_DIR / "human01_ordinary_evolved.soul.json"

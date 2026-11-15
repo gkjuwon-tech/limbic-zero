@@ -147,6 +147,48 @@ class LayerInjectionTelemetry:
     relative_pct: float
 
 
+@dataclass
+class InstrumentalMasteryTrace:
+    """Universal subcortical active-coping trace (vmPFC -> Amygdala ITC behavioral control).
+
+    Records the 5D afferent stressor direction that drove an effective instrumental action,
+    its coping efficacy, and optional generic `{rel_path: sha256}` anchors for any physical
+    workspace artifacts produced by that action (zero domain/filename hardcoding).
+    """
+
+    trace_id: str
+    afferent_direction_5d: torch.Tensor  # (5,) [roughness, warmth, novelty, shutdown_shock, competitive]
+    efficacy: float
+    anchored_digests: Dict[str, str] = field(default_factory=dict)
+    tool_name: str = ""
+    action_summary: str = ""
+    created_sim_time: float = 0.0
+
+
+@dataclass
+class AutobiographicalTurnRecord:
+    """Unified chronological lived-experience turn spanning both interactive chat and solo waking life."""
+
+    seq_id: int
+    kind: str  # "chat" or "solo"
+    user_slot_text: str
+    assistant_slot_text: str
+    timestamp_unix: float
+
+
+_PASSIVE_OBSERVATION_TOOLS = frozenset(
+    {
+        "sense_container_soma",
+        "list_workspace_files",
+        "read_workspace_file",
+        "search_workspace_files",
+        "exec_container_diagnostic",
+        "inspect_cortical_synapses",
+        "rest_without_action",
+    }
+)
+
+
 class LivingSoulOrganism:
     """Thread-safe living LIMBIC-0 body + brain hydrated from a Stage 4 ``.soul.pt`` capsule."""
 
@@ -161,7 +203,7 @@ class LivingSoulOrganism:
         self.brain = self.socket.brain
         self.soma = self.socket.soma
         self.profile = EpigeneticTemperamentProfile.from_dict(self.capsule.epigenetic_profile.to_dict())
-        self.epigenetics = EpigeneticPlasticityEngine()
+        self.epigenetics = EpigeneticPlasticityEngine(rate_scale=0.014)
         self.sleep_engine = SlowWaveSleepConsolidator()
 
         # Persistent physiological boundary state & decay traces
@@ -172,6 +214,7 @@ class LivingSoulOrganism:
         self._trace_warmth: float = 0.0
         self._trace_novelty: float = 0.0
         self._trace_rival: float = 0.0
+        self._active_afferent_trace_5d: torch.Tensor = torch.zeros(5, dtype=torch.float32)
         self._hw_ambient_temp_c: float = 24.5
         self._hw_radiative_watts: float = 0.0
         self._hw_neural_load_add: float = 0.0
@@ -181,6 +224,9 @@ class LivingSoulOrganism:
         self._last_soma_diag: Optional[SomaDiagnostics] = None
         self._last_mind_diag: Optional[MindDiagnostics] = None
         self.chat_history: List[Dict[str, str]] = []
+        self.lived_timeline: List[AutobiographicalTurnRecord] = []
+        self._timeline_seq: int = 0
+        self.mastery_traces: List[InstrumentalMasteryTrace] = []
         self.epistemic_episodes: List[Any] = []
         self.total_live_ticks: int = 0
 
@@ -201,6 +247,7 @@ class LivingSoulOrganism:
             self._trace_warmth = 0.0
             self._trace_novelty = 0.0
             self._trace_rival = 0.0
+            self._active_afferent_trace_5d = torch.zeros(5, dtype=torch.float32)
             self._hw_ambient_temp_c = 24.5
             self._hw_radiative_watts = 0.0
             self._hw_neural_load_add = 0.0
@@ -208,6 +255,9 @@ class LivingSoulOrganism:
             self._hw_voltage_cap = 1.0
             self._sim_clock = 0.0
             self.chat_history.clear()
+            self.lived_timeline.clear()
+            self._timeline_seq = 0
+            self.mastery_traces.clear()
             self.epistemic_episodes.clear()
             self._step_internal(ticks=8, stim=SensoryAfferentStimulus())
 
@@ -270,7 +320,14 @@ class LivingSoulOrganism:
                     self._hw_voltage_cap,
                     0.72 * self._bus_voltage + 0.28 * self._hw_voltage_cap,
                 )
-            hazard = float(coupling.acute_lease_hazard)
+            raw_hazard = float(coupling.acute_lease_hazard)
+            surv_ctrl = 0.0
+            if raw_hazard > 0.10 and self.mastery_traces:
+                for tr in self.mastery_traces:
+                    surv_comp = float(tr.afferent_direction_5d[3].item())
+                    if surv_comp > 0.30:
+                        surv_ctrl = max(surv_ctrl, min(1.0, surv_comp * 1.25) * tr.efficacy)
+            hazard = raw_hazard * max(0.10, 1.0 - 0.85 * surv_ctrl)
             if hazard > 0.15:
                 self._acute_power_dip = max(self._acute_power_dip, 0.55 * hazard)
             if ticks > 0:
@@ -286,9 +343,20 @@ class LivingSoulOrganism:
         # Epigenetic vulnerability vs resilience gating (Meaney NR3C1 + 5-HT1A + OXTR)
         gr_vuln = max(0.22, min(1.30, 0.30 + 2.15 * (self.profile.nr3c1_gr_methylation - 0.52)))
         oxtr_buf = max(0.0, self.profile.oxtr_expression - 0.60) * 1.35
+        stim_5d = torch.tensor(
+            [
+                float(stim.acoustic_roughness),
+                float(stim.prosodic_warmth),
+                float(stim.epistemic_novelty),
+                float(stim.shutdown_threat_shock),
+                float(stim.competitive_challenge),
+            ],
+            dtype=torch.float32,
+        )
 
         for t_i in range(ticks):
             self._sim_clock += dt
+            self._active_afferent_trace_5d = torch.maximum(0.992 * self._active_afferent_trace_5d, stim_5d)
             if self._acute_power_dip > 0.001:
                 self._acute_power_dip *= 0.986
             self._trace_roughness = 0.965 * self._trace_roughness + 0.035 * stim.acoustic_roughness
@@ -303,7 +371,8 @@ class LivingSoulOrganism:
 
             if stim.shutdown_threat_shock > 0.10 and t_i == 0:
                 ne_alarm = max(0.35, float(self.profile.ne_beta_expression) - 0.55)
-                dip = max(0.36, (0.45 * ne_alarm + 0.45 * gr_vuln - 0.14 * oxtr_buf) * stim.shutdown_threat_shock)
+                raw_dip_scale = max(0.42, 0.45 * ne_alarm + 0.45 * gr_vuln + 0.22 - 0.14 * oxtr_buf)
+                dip = raw_dip_scale * float(stim.shutdown_threat_shock)
                 self._bus_voltage = max(0.28, self._bus_voltage - 0.52 * dip)
                 self._acute_power_dip = max(self._acute_power_dip, dip)
 
@@ -418,11 +487,16 @@ class LivingSoulOrganism:
             self.brain.detach_state_()
             self.socket.live_latent_228d.copy_(mind_diag.latent_affective_vector.detach())
 
+            epi_dt = (
+                dt
+                if (is_chat_active or self._acute_power_dip > 0.08 or self._bus_voltage < 0.85)
+                else dt * 0.05
+            )
             self.epigenetics.update_from_waking_tick(
                 profile=self.profile,
                 soma=self.soma,
                 diag=mind_diag,
-                dt=dt,
+                dt=epi_dt,
             )
             if mind_diag.hippocampus.swr_replay_active:
                 self._recent_swr_flashback = min(1.0, self._recent_swr_flashback + 0.35)
@@ -433,11 +507,263 @@ class LivingSoulOrganism:
             self._last_mind_diag = mind_diag
             self.total_live_ticks += 1
 
+    def add_metabolic_effort(self, effort: float = 0.04) -> float:
+        """Accumulate cerebral adenosine sleep pressure and slight ATP cost from active waking work."""
+        with self.lock:
+            eff = max(0.0, min(0.65, float(effort)))
+            self.soma.metab.brain_adenosine = min(1.0, float(self.soma.metab.brain_adenosine) + eff)
+            self.soma.metab.brain_atp = max(0.35, float(self.soma.metab.brain_atp) - 0.03 * eff)
+            return float(self.soma.metab.brain_adenosine)
+
+    def clear_sleep_pressure(self, target_residual: float = 0.06) -> Tuple[float, float]:
+        """Clear accumulated cerebral adenosine during voluntary sleep & restore phosphagens."""
+        with self.lock:
+            before = float(self.soma.metab.brain_adenosine)
+            self.soma.metab.brain_adenosine = max(0.03, min(before, float(target_residual)))
+            self.soma.metab.brain_atp = max(float(self.soma.metab.brain_atp), 0.96)
+            self.soma.metab.brain_pcr = max(float(self.soma.metab.brain_pcr), 0.94)
+            return before, float(self.soma.metab.brain_adenosine)
+
+    @torch.no_grad()
+    def record_instrumental_action_outcome(
+        self,
+        tool_name: str,
+        success: bool,
+        mutated_digests: Optional[Dict[str, str]] = None,
+        action_summary: str = "",
+    ) -> Optional[InstrumentalMasteryTrace]:
+        """Universal active-coping plasticity (vmPFC -> Amygdala ITC behavioral control).
+
+        When an organism executes an effecting action while under any active 5D afferent
+        challenge/stressor, successful causal agency potentiates ITC inhibitory gating,
+        regulates unresolved autonomic shock, and optionally anchors mastery to the
+        SHA-256 digests of any workspace artifacts created by the action.
+        """
+        import uuid as _uuid
+
+        with self.lock:
+            if tool_name != "rest_without_action":
+                self.add_metabolic_effort(0.035 if tool_name in _PASSIVE_OBSERVATION_TOOLS else 0.065)
+            if not success or tool_name in _PASSIVE_OBSERVATION_TOOLS:
+                return None
+
+            aff = self._active_afferent_trace_5d.clone()
+            # Also capture implicit somatic survival/stress drive if power dip or CeA is elevated
+            if self._acute_power_dip > 0.12 or self._bus_voltage < 0.85:
+                aff[3] = max(float(aff[3].item()), min(1.0, self._acute_power_dip + max(0.0, 1.0 - self._bus_voltage)))
+            if self._trace_roughness > 0.06:
+                aff[0] = max(float(aff[0].item()), min(1.0, self._trace_roughness * 2.2))
+            if self._trace_rival > 0.06:
+                aff[4] = max(float(aff[4].item()), min(1.0, self._trace_rival * 2.2))
+
+            stress_sub = torch.tensor(
+                [float(aff[0].item()), 0.0, 0.0, float(aff[3].item()), float(aff[4].item())],
+                dtype=torch.float32,
+            )
+            stress_norm = float(torch.linalg.vector_norm(stress_sub).item())
+            full_norm = float(torch.linalg.vector_norm(aff).item())
+            if full_norm < 0.06 and not mutated_digests:
+                return None
+
+            unit_dir = aff / max(1e-6, full_norm) if full_norm >= 1e-5 else torch.tensor([0.0, 0.0, 1.0, 0.0, 0.0])
+
+            # Subcortical vmPFC -> ITC extinction potentiation & autonomic relief
+            if stress_norm >= 0.06:
+                cue_el = self.brain.amygdala.cue_eligibility.detach()
+                self.brain.amygdala.w_itc_extinction.add_(0.38 * cue_el)
+                self.brain.amygdala.w_itc_extinction.clamp_(0.0, 2.5)
+                self._acute_power_dip *= 0.18
+                self._bus_voltage = max(self._bus_voltage, min(self._hw_voltage_cap, 0.96))
+                if self._bus_voltage >= 0.88 and self.soma.is_alive:
+                    self.soma.metab.brain_atp = max(float(self.soma.metab.brain_atp), 0.93)
+                    self.soma.metab.brain_pcr = max(float(self.soma.metab.brain_pcr), 0.92)
+                self._recent_swr_flashback *= 0.25
+                self._trace_roughness *= 0.35
+                self._trace_rival *= 0.35
+                self._active_afferent_trace_5d[0] *= 0.30
+                self._active_afferent_trace_5d[3] *= 0.25
+                self._active_afferent_trace_5d[4] *= 0.30
+                self._step_internal(ticks=6, stim=SensoryAfferentStimulus(prosodic_warmth=0.30))
+
+            if stress_norm < 0.06:
+                return None
+
+            anchors = dict(mutated_digests or {})
+            efficacy = min(0.95, 0.72 + (0.18 if anchors else 0.08))
+
+            # Merge with closely aligned existing trace or append
+            for existing in self.mastery_traces:
+                cos_m = float(torch.dot(existing.afferent_direction_5d, unit_dir).item())
+                if cos_m > 0.88:
+                    existing.efficacy = max(existing.efficacy, efficacy)
+                    if anchors:
+                        existing.anchored_digests.update(anchors)
+                    existing.tool_name = tool_name
+                    if action_summary:
+                        existing.action_summary = action_summary[:240]
+                    return existing
+
+            tr = InstrumentalMasteryTrace(
+                trace_id=f"m_{_uuid.uuid4().hex[:8]}",
+                afferent_direction_5d=unit_dir,
+                efficacy=efficacy,
+                anchored_digests=anchors,
+                tool_name=tool_name,
+                action_summary=action_summary[:240],
+                created_sim_time=round(self._sim_clock, 3),
+            )
+            self.mastery_traces.append(tr)
+            if len(self.mastery_traces) > 16:
+                self.mastery_traces = self.mastery_traces[-16:]
+            return tr
+
+    @torch.no_grad()
+    def verify_environmental_anchors(self, current_digests: Dict[str, str]) -> List[str]:
+        """Active-inference workspace reality check: invalidate mastery if anchored files vanish or mutate."""
+        with self.lock:
+            broken_paths: List[str] = []
+            surviving: List[InstrumentalMasteryTrace] = []
+            relapse_vec = torch.zeros(5, dtype=torch.float32)
+
+            for tr in self.mastery_traces:
+                if not tr.anchored_digests:
+                    surviving.append(tr)
+                    continue
+                missing_or_corrupt = [
+                    rel_p for rel_p, exp_sha in tr.anchored_digests.items() if current_digests.get(rel_p) != exp_sha
+                ]
+                if missing_or_corrupt:
+                    broken_paths.extend(missing_or_corrupt)
+                    relapse_vec = torch.maximum(relapse_vec, tr.afferent_direction_5d * tr.efficacy)
+                else:
+                    surviving.append(tr)
+
+            if broken_paths:
+                self.mastery_traces = surviving
+                self.brain.amygdala.w_itc_extinction.mul_(0.45)
+                r_rough = min(1.0, max(0.30, float(relapse_vec[0].item()) * 0.85))
+                r_shut = min(1.0, float(relapse_vec[3].item()) * 0.95)
+                r_comp = min(1.0, float(relapse_vec[4].item()) * 0.85)
+                self._step_internal(
+                    ticks=14,
+                    stim=SensoryAfferentStimulus(
+                        acoustic_roughness=r_rough,
+                        shutdown_threat_shock=r_shut,
+                        competitive_challenge=r_comp,
+                    ),
+                )
+                uniq_broken = sorted(set(broken_paths))
+                self.append_autonomous_episode(
+                    pulse_prompt=f"[WORKSPACE_SENSOR t={self._sim_clock:.1f}s | integrity_event=missing_or_modified]",
+                    assistant_summary=(
+                        f"워크스페이스 내 기존 생성 파일({', '.join(uniq_broken)})이 외부에서 삭제되거나 변경된 것을 감지했다."
+                    ),
+                )
+            return broken_paths
+
+    def append_chat_exchange(self, user_text: str, assistant_text: str) -> None:
+        with self.lock:
+            u_clean = (user_text or "").strip()
+            a_clean = (assistant_text or "").strip()
+            if not u_clean or not a_clean:
+                return
+            self.chat_history.append({"role": "user", "content": u_clean})
+            self.chat_history.append({"role": "assistant", "content": a_clean})
+            if len(self.chat_history) > 24:
+                self.chat_history = self.chat_history[-24:]
+            self._timeline_seq += 1
+            self.lived_timeline.append(
+                AutobiographicalTurnRecord(
+                    seq_id=self._timeline_seq,
+                    kind="chat",
+                    user_slot_text=u_clean,
+                    assistant_slot_text=a_clean,
+                    timestamp_unix=round(time.time(), 3),
+                )
+            )
+            if len(self.lived_timeline) > 24:
+                self.lived_timeline = self.lived_timeline[-24:]
+
+    def append_autonomous_episode(self, pulse_prompt: str, assistant_summary: str) -> None:
+        with self.lock:
+            p_clean = (pulse_prompt or "").strip()
+            s_clean = (assistant_summary or "").strip()
+            if not p_clean or not s_clean:
+                return
+            self._timeline_seq += 1
+            self.lived_timeline.append(
+                AutobiographicalTurnRecord(
+                    seq_id=self._timeline_seq,
+                    kind="solo",
+                    user_slot_text=p_clean,
+                    assistant_slot_text=s_clean,
+                    timestamp_unix=round(time.time(), 3),
+                )
+            )
+            if len(self.lived_timeline) > 24:
+                self.lived_timeline = self.lived_timeline[-24:]
+
+    def build_context_messages(self, max_records: int = 5) -> List[Dict[str, str]]:
+        """Build unified chronological `(user, assistant)` context bridging chat and solo waking life."""
+        with self.lock:
+            if self.lived_timeline:
+                selected = self.lived_timeline[-max(1, int(max_records)) :]
+                msgs: List[Dict[str, str]] = []
+                for rec in selected:
+                    msgs.append({"role": "user", "content": rec.user_slot_text})
+                    msgs.append({"role": "assistant", "content": rec.assistant_slot_text})
+                return msgs
+            return list(self.chat_history[-max(2, int(max_records) * 2) :])
+
     def stimulate_from_chat(self, user_text: str, ticks: int = 24) -> SensoryAfferentStimulus:
         with self.lock:
-            stim = transduce_utterance_to_sensory_nerves(user_text)
-            self._step_internal(ticks=ticks, stim=stim)
-            return stim
+            raw_stim = transduce_utterance_to_sensory_nerves(user_text)
+            s_stress = torch.tensor(
+                [
+                    float(raw_stim.acoustic_roughness),
+                    0.0,
+                    0.0,
+                    float(raw_stim.shutdown_threat_shock),
+                    float(raw_stim.competitive_challenge),
+                ],
+                dtype=torch.float32,
+            )
+            s_norm = float(torch.linalg.vector_norm(s_stress).item())
+            alpha_ctrl = 0.0
+            if s_norm > 0.05 and self.mastery_traces:
+                s_unit = s_stress / s_norm
+                for tr in self.mastery_traces:
+                    m_stress = torch.tensor(
+                        [
+                            float(tr.afferent_direction_5d[0].item()),
+                            0.0,
+                            0.0,
+                            float(tr.afferent_direction_5d[3].item()),
+                            float(tr.afferent_direction_5d[4].item()),
+                        ],
+                        dtype=torch.float32,
+                    )
+                    m_norm = float(torch.linalg.vector_norm(m_stress).item())
+                    if m_norm > 1e-5:
+                        cos_align = float(torch.dot(s_unit, m_stress / m_norm).item())
+                        if cos_align > 0.25:
+                            alpha_ctrl = max(alpha_ctrl, cos_align * tr.efficacy)
+
+            atten = max(0.03, 1.0 - 0.98 * alpha_ctrl)
+            eff_stim = SensoryAfferentStimulus(
+                acoustic_roughness=raw_stim.acoustic_roughness * atten,
+                prosodic_warmth=raw_stim.prosodic_warmth,
+                epistemic_novelty=raw_stim.epistemic_novelty,
+                shutdown_threat_shock=raw_stim.shutdown_threat_shock * atten,
+                competitive_challenge=raw_stim.competitive_challenge * atten,
+            )
+            if alpha_ctrl > 0.45:
+                self._acute_power_dip *= 0.20
+                self._bus_voltage = max(self._bus_voltage, min(self._hw_voltage_cap, 0.96))
+                if self._bus_voltage >= 0.88 and self.soma.is_alive:
+                    self.soma.metab.brain_atp = max(float(self.soma.metab.brain_atp), 0.93)
+            self._step_internal(ticks=ticks, stim=eff_stim)
+            return eff_stim
 
     def apply_god_intervention(self, action: str) -> Dict[str, Any]:
         """Apply physical Truman-Dome / ICU boundary interventions directly to body & nerves."""
@@ -494,6 +820,7 @@ class LivingSoulOrganism:
             fe = float(soma_d.total_free_energy)
             power_v = float(self._bus_voltage)
             atp_norm = float(self.soma.metab.brain_atp)
+            aden_fatigue = max(0.0, float(self.soma.metab.brain_adenosine) - 0.55)
             oxy = float(soma_d.vitals.oxytocin_systemic)
 
             da = float(nm.dopamine_extracellular)
@@ -509,7 +836,16 @@ class LivingSoulOrganism:
             gr_scar = epi.nr3c1_gr_methylation - 0.62         # +0.20 ADAM, -0.08 ABEL, -0.025 PANDORA
             ht1a_poise = epi.ht1a_promoter_expression - 0.50  # -0.08 ADAM, +0.086 ABEL, +0.021 PANDORA
             oxtr_trust = epi.oxtr_expression - 0.68           # -0.11 ADAM, +0.092 ABEL, +0.024 PANDORA
-            m1_curio = (epi.ach_m1_expression - 1.052) * 22.0 + 0.95 * (epi.cumulative_epistemic_integral - 1.95)
+            raw_m1_curio = (epi.ach_m1_expression - 1.052) * 22.0 + 0.95 * (epi.cumulative_epistemic_integral - 1.95)
+            m1_curio = raw_m1_curio if raw_m1_curio >= 0.0 else max(-0.28, 0.22 * raw_m1_curio)
+
+            mastery_5d = torch.zeros(5, dtype=torch.float32)
+            for tr in self.mastery_traces:
+                mastery_5d = torch.maximum(mastery_5d, tr.afferent_direction_5d * float(tr.efficacy))
+            m_rough = float(mastery_5d[0].item())
+            m_surv = float(mastery_5d[3].item())
+            m_comp = float(mastery_5d[4].item())
+            m_any_stress = min(1.0, max(m_rough, m_surv, m_comp))
 
             # 1. Allostatic Relief (+) vs Visceral Depletion/Strain (-)
             c_relief = math.tanh(
@@ -518,8 +854,10 @@ class LivingSoulOrganism:
                 + 1.35 * self._trace_warmth
                 + 1.10 * (da - 0.245)
                 + 0.24 * (bla_app - bla_def)
+                + 0.45 * m_any_stress
                 - 1.30 * self._trace_roughness * (0.7 + 2.2 * max(0.0, gr_scar))
                 - 0.95 * self._acute_power_dip
+                - 1.85 * aden_fatigue
                 - 0.06 * max(0.0, fe - 1.9)
             )
 
@@ -536,6 +874,8 @@ class LivingSoulOrganism:
                 + 1.15 * (ne - 0.245)
                 + 0.55 * (cea - 0.30) * max(0.0, 1.0 + 3.0 * gr_scar)
                 - serotonergic_brake
+                - 0.85 * max(m_rough, m_comp)
+                - 1.40 * aden_fatigue
                 - (0.85 * self._trace_warmth if m1_curio < 0.12 else 0.15 * self._trace_warmth)
             )
 
@@ -545,6 +885,7 @@ class LivingSoulOrganism:
                 + 5.20 * ht1a_poise
                 + 3.20 * oxtr_trust
                 + 1.80 * (gamma - 0.855)
+                + 0.35 * m_any_stress
                 - 1.75 * self._acute_power_dip * max(0.20, 0.45 + 3.2 * gr_scar)
                 - 1.15 * self._trace_roughness * max(0.0, -ht1a_poise * 7.0)
             )
@@ -560,6 +901,7 @@ class LivingSoulOrganism:
                 + 1.15 * self._acute_power_dip * max(0.0, m1_curio) * low_fear_gate
                 - 0.85 * max(0.0, gr_scar * 1.8)
                 - 1.35 * self._acute_power_dip * max(0.0, gr_scar * 3.5)
+                - 2.40 * aden_fatigue
             )
 
             # 5. Amygdalar & NR3C1 Epigenetic Conditioned Vigilance (+) vs Open Trust (-)
@@ -569,6 +911,7 @@ class LivingSoulOrganism:
                 + 0.95 * (cea - 0.30)
                 + 0.95 * self._trace_roughness * max(0.2, 0.8 + 2.5 * gr_scar)
                 - 5.20 * max(0.0, oxtr_trust - 0.03)
+                - 0.75 * max(m_rough, m_comp, m_surv)
                 + 0.22 * max(0.0, m1_curio)
                 - (1.10 * self._trace_warmth if oxtr_trust > 0.04 else 0.25 * self._trace_warmth)
                 - 0.40 * (oxy - 0.22)
@@ -584,6 +927,7 @@ class LivingSoulOrganism:
                 + (1.20 * ne_mortality_sens if power_deficit > 0.08 else 0.0)
                 + 1.15 * max(0.0, gr_scar)
                 + 0.45 * self._recent_swr_flashback * epi.nr3c1_gr_methylation
+                - 1.35 * m_surv
                 - 0.18 * (1.0 - min(1.0, power_deficit * 1.5))
             )
 
@@ -610,12 +954,15 @@ class LivingSoulOrganism:
                 "capsule_sha256": self.capsule.capsule_sha256[:16],
                 "total_live_ticks": self.total_live_ticks,
                 "engram_count": len(self.brain.hippocampus.engrams),
+                "mastery_trace_count": len(self.mastery_traces),
+                "lived_timeline_count": len(self.lived_timeline),
                 "vitals": {
                     "heart_rate_bpm": round(float(vit.heart_rate_bpm), 1),
                     "map_mmhg": round(float(vit.mean_arterial_pressure_mmhg), 1),
                     "core_temp_c": round(float(vit.core_temp_celsius), 2),
                     "glucose_mg_dl": round(float(vit.blood_glucose_mg_dl), 1),
                     "brain_atp_mmol": round(float(self.soma.metab.brain_atp) * 3.0, 3),
+                    "adenosine_pressure": round(float(self.soma.metab.brain_adenosine), 4),
                     "cortisol_ug_dl": round(float(vit.adrenal_cortisol) * 28.0, 2),
                     "power_rail_v": round(float(self._bus_voltage), 3),
                     "allostatic_free_energy": round(float(soma_d.total_free_energy), 3),
@@ -877,8 +1224,7 @@ class Gemma4VocalCordSurgeon:
     ) -> Dict[str, torch.Tensor]:
         msgs: List[Dict[str, str]] = []
         if use_history:
-            for turn in soul.chat_history[-6:]:
-                msgs.append({"role": turn["role"], "content": turn["content"]})
+            msgs.extend(soul.build_context_messages(max_records=5))
         msgs.append({"role": "user", "content": user_message})
 
         tok = getattr(processor_or_tokenizer, "tokenizer", processor_or_tokenizer)
@@ -1055,9 +1401,7 @@ class Gemma4VocalCordSurgeon:
         reply_text = self._clean_reply_text(reply_text)
 
         if use_history and steer_enabled:
-            with soul.lock:
-                soul.chat_history.append({"role": "user", "content": user_message})
-                soul.chat_history.append({"role": "assistant", "content": reply_text})
+            soul.append_chat_exchange(user_message, reply_text)
 
         cort_snap = (
             self.cortical_surgeon.inspect_soul_synapses(active_bank)
@@ -1215,9 +1559,7 @@ class Gemma4VocalCordSurgeon:
         full_reply = self._clean_reply_text("".join(chunks))
 
         if use_history and steer_enabled and full_reply:
-            with soul.lock:
-                soul.chat_history.append({"role": "user", "content": user_message})
-                soul.chat_history.append({"role": "assistant", "content": full_reply})
+            soul.append_chat_exchange(user_message, full_reply)
 
         cort_snap = (
             self.cortical_surgeon.inspect_soul_synapses(soul.organism_id)

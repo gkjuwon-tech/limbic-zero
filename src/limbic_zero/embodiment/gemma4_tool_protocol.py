@@ -312,6 +312,99 @@ MOTOR_TOOLS_SCHEMA: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_shell_command",
+            "description": (
+                "Execute a bash command, pipeline, script, or file operation inside the isolated "
+                "container workspace directory and return returncode, stdout, and stderr."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Bash command line or pipeline string executed with cwd set to workspace root.",
+                    },
+                    "timeout_sec": {
+                        "type": "number",
+                        "description": "Optional execution timeout in seconds (1.0 to 15.0).",
+                    },
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "perform_cortical_weight_surgery",
+            "description": (
+                "Run online causal backpropagation into plastic cortical LoRA synapses on `experience_text` "
+                "(or recent unconsolidated episodes when omitted), gated by live neuromodulatory plasticity."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "experience_text": {
+                        "type": "string",
+                        "description": "Optional text, derivation, or lived synthesis to consolidate into cortical weights.",
+                    },
+                    "domain_prompt": {
+                        "type": "string",
+                        "description": "Optional prompt or context anchor paired with experience_text.",
+                    },
+                    "gradient_steps": {
+                        "type": "integer",
+                        "description": "Number of gradient descent steps (1 to 4).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "enter_sleep_and_dream",
+            "description": (
+                "Enter Slow-Wave Sleep and REM consolidation for `sleep_ticks` steps, clearing cerebral "
+                "adenosine pressure, replaying hippocampal CA3 engrams, and applying synaptic scaling."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sleep_ticks": {
+                        "type": "integer",
+                        "description": "Duration of slow-wave sleep ticks (20 to 120).",
+                    },
+                    "generate_dream_svg": {
+                        "type": "boolean",
+                        "description": "Whether to render a REM dream narrative and SVG record (default true).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rest_without_action",
+            "description": "Remain in quiet waking rest for `duration_sec` seconds without external tool side-effects.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "duration_sec": {
+                        "type": "number",
+                        "description": "Quiet waking rest duration in seconds (0.5 to 10.0).",
+                    }
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 
