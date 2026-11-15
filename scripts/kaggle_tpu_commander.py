@@ -437,6 +437,121 @@ def stop_kaggle_tpu_session(
         state_file.unlink(missing_ok=True)
 
 
+def deploy_persistent_batch_tpu_v5e8(
+    owner: str,
+    kernel_slug_name: str = "limbic0-stage14-tpu-v5e8",
+    kaggle_cli_bin: str = "kaggle",
+    repo_url: str = "https://github.com/gkjuwon-tech/limbic-zero.git",
+    wait_for_url: bool = True,
+) -> Dict[str, Any]:
+    """Push a 9-hour persistent TPU v5e-8 batch session and stream SSE logs until Cloudflare URL is live."""
+    _require_kaggle_token()
+    from kaggle.api.kaggle_api_extended import KaggleApi  # type: ignore[import-not-found]
+
+    full_slug = f"{owner}/{kernel_slug_name}"
+    runner_src = f'''"""LIMBIC-0 Stage 14 Google Cloud TPU v5e-8 Persistent 9h Runner."""
+import os, shutil, subprocess, sys
+from pathlib import Path
+
+candidate_mounts = ["/kaggle/temp", "/tmp", "/dev/shm", "/kaggle/working", "/"]
+best_scratch = "/tmp"
+best_free_gb = 0.0
+for m in candidate_mounts:
+    p = Path(m)
+    if p.exists():
+        free_gb = shutil.disk_usage(m).free / (1024 ** 3)
+        if m in ("/kaggle/temp", "/tmp") and free_gb >= 75.0 and free_gb > best_free_gb:
+            best_scratch, best_free_gb = m, free_gb
+if best_free_gb < 75.0 and Path("/dev/shm").exists():
+    shm_free = shutil.disk_usage("/dev/shm").free / (1024 ** 3)
+    if shm_free >= 75.0:
+        best_scratch, best_free_gb = "/dev/shm", shm_free
+
+try:
+    from transformers import AutoModelForMultimodalLM  # noqa: F401
+    import transformers.models.gemma4  # noqa: F401
+except Exception:
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "-U",
+         "transformers>=5.0.0", "accelerate", "huggingface_hub", "hf_transfer", "safetensors", "pillow"],
+        check=True,
+    )
+
+repo_dir = Path("/kaggle/working/limbic-zero")
+if not (repo_dir / ".git").exists():
+    subprocess.run(["git", "clone", "{repo_url}", str(repo_dir)], check=True)
+else:
+    subprocess.run(["git", "-C", str(repo_dir), "pull", "--ff-only"], check=True)
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", str(repo_dir), "--no-deps"], check=True)
+
+hf_cache = Path(best_scratch) / "limbic0_hf_cache"
+xla_cache = Path(best_scratch) / "limbic0_xla_cache"
+hf_cache.mkdir(parents=True, exist_ok=True)
+xla_cache.mkdir(parents=True, exist_ok=True)
+
+env = os.environ.copy()
+env.update({{"HF_HOME": str(hf_cache), "HF_HUB_ENABLE_HF_TRANSFER": "1", "PJRT_DEVICE": "TPU", "PYTHONUNBUFFERED": "1"}})
+
+subprocess.run([
+    sys.executable, "-u", str(repo_dir / "scripts" / "run_stage5_gemma4_vocal_cord.py"),
+    "--backend", "tpu_spmd", "--model-id", "google/gemma-4-31B-it",
+    "--max-cache-len", "2560", "--xla-cache-dir", str(xla_cache),
+    "--warmup-buckets", "128,256,512", "--port", "8000", "--enable-cloudflare",
+    "--habitat-dir", "/kaggle/working/limbic0_hab",
+    "--plasticity-dir", "/kaggle/working/limbic0_plast",
+    "--evolution-dir", "/kaggle/working/limbic0_evo",
+], cwd=str(repo_dir), env=env, check=True)
+'''
+    with tempfile.TemporaryDirectory(prefix="limbic0_batch_") as tmpdir:
+        tpath = Path(tmpdir)
+        meta = {
+            "id": full_slug,
+            "title": kernel_slug_name,
+            "code_file": "runner.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": True,
+            "enable_gpu": False,
+            "enable_tpu": True,
+            "enable_internet": True,
+            "machine_shape": "TpuV5E8",
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": [],
+        }
+        (tpath / "kernel-metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        (tpath / "runner.py").write_text(runner_src, encoding="utf-8")
+        subprocess.run([kaggle_cli_bin, "kernels", "push", "--acc", "TpuV5E8", "-p", str(tpath)], check=True)
+
+    if not wait_for_url:
+        return {"slug": full_slug, "status": "PUSHED"}
+
+    api = KaggleApi()
+    api.authenticate()
+    url_re = re.compile(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com")
+    cf_url = ""
+    server_live = False
+    while True:
+        st_str = str(api.kernels_status(full_slug).status)
+        if "ERROR" in st_str or "CANCEL" in st_str:
+            raise RuntimeError(f"Batch TPU session failed ({st_str}):\n{api.kernels_logs(full_slug)}")
+        if "RUNNING" in st_str:
+            for evt in api.kernels_logs_stream(full_slug):
+                chunk = evt.get("data", "") if isinstance(evt, dict) else str(evt)
+                if not chunk:
+                    continue
+                print(chunk, end="" if chunk.endswith("\n") else "\n", flush=True)
+                m = url_re.search(chunk)
+                if m:
+                    cf_url = m.group(0)
+                if "UNIFIED HUMAN SOUL SERVER LIVE" in chunk:
+                    server_live = True
+                if cf_url and server_live:
+                    return {"slug": full_slug, "cloudflare_url": cf_url}
+        time.sleep(10.0)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Stage 14 Kaggle TPU v5e-8 Provisioner & Commander")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -447,6 +562,12 @@ def main() -> None:
     p_prov.add_argument("--kaggle-bin", type=str, default=shutil.which("kaggle") or "kaggle")
     p_prov.add_argument("--model-source", type=str, default=DEFAULT_MODEL_SOURCE)
     p_prov.add_argument("--skip-push", action="store_true", help="Skip SaveKernel push if kernel slug already exists")
+
+    p_batch = sub.add_parser("deploy-batch", help="Push 9h persistent TPU v5e-8 batch session & await Cloudflare URL")
+    p_batch.add_argument("--owner", type=str, required=True)
+    p_batch.add_argument("--slug-name", type=str, default="limbic0-stage14-tpu-v5e8")
+    p_batch.add_argument("--kaggle-bin", type=str, default=shutil.which("kaggle") or "kaggle")
+    p_batch.add_argument("--no-wait", action="store_true")
 
     p_exec = sub.add_parser("exec-py", help="Execute Python snippet on active Kaggle TPU VM")
     p_exec.add_argument("--code", type=str, required=True)
@@ -465,6 +586,14 @@ def main() -> None:
             skip_push=args.skip_push,
         )
         print(json.dumps({k: v for k, v in info.items() if k != "jupyter_url"}, indent=2))
+    elif args.cmd == "deploy-batch":
+        res = deploy_persistent_batch_tpu_v5e8(
+            owner=args.owner,
+            kernel_slug_name=args.slug_name,
+            kaggle_cli_bin=args.kaggle_bin,
+            wait_for_url=not args.no_wait,
+        )
+        print(json.dumps(res, indent=2))
     elif args.cmd == "exec-py":
         st = json.loads(DEFAULT_STATE_FILE.read_text(encoding="utf-8"))
         out, err = run_python_on_jupyter_proxy(st["jupyter_url"], args.code, timeout_sec=args.timeout)
@@ -481,3 +610,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

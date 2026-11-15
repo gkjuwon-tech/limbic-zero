@@ -1,6 +1,6 @@
-# Project LIMBIC-0 (`림빅 제로`) — Stages 1–5: Whole-Body Physiology, Truman Dome, Biological Mind, Neuro-fMRI Observatory, Matured Soul Capsules & Live `Gemma-4-12B-IT` Mid-Layer Vocal Cord Surgery
+# Project LIMBIC-0 (`림빅 제로`) — Stages 1–14: Whole-Body Physiology, Biological Mind, Cortical LoRA Plasticity, Universal Free-Will Embodiment & Google Cloud `TPU v5e-8` Pure-BF16 `Gemma-4-31B-IT` GSPMD Neocortical Engine
 
-> **Strict Zero-Cheat Mandate**: Zero `Transformer`, `MultiheadAttention`, `LSTM`, `GRU`, or `RNN` layers inside the `LIMBIC-0` mind/evolution; zero `sklearn`/`scipy`; zero hardcoded emotion labels (`anger`, `fear`, `joy`, `jealousy`, etc.) inside `core/`, `sandbox/`, `mind/`, `dashboard/`, or `evolution/`; zero emotional or persona system-prompt roleplay in Stage 5 LLM generation; zero scripted `if/else` behavioral shortcuts; zero designer reward hacks (`+10 for food`, `-distance_to_oasis`); zero `Math.sin()` fake EEG waves; and zero omniscient world-coordinate leaks or direct God-Mode brain-tensor mutations exist anywhere in `src/limbic_zero`. Every affective state, survival instinct, epigenetic temperament, memory flashback, and pre-linguistic personality emerges strictly from **coupled organ physiology**, **2D Eulerian continuum physics**, **conductance-based continuous-time neurobiology**, and **middle-layer residual-stream vector addition**.
+> **Strict Zero-Cheat Mandate**: Zero `Transformer`, `MultiheadAttention`, `LSTM`, `GRU`, or `RNN` layers inside the `LIMBIC-0` mind/evolution; zero `sklearn`/`scipy`; zero hardcoded emotion labels (`anger`, `fear`, `joy`, `jealousy`, etc.) inside `core/`, `sandbox/`, `mind/`, `dashboard/`, or `evolution/`; zero emotional or persona system-prompt roleplay in LLM generation; zero scenario-specific behavioral hardcoding; zero designer reward hacks (`+10 for food`, `-distance_to_oasis`); zero `Math.sin()` fake EEG waves; zero fabricated hardware telemetry; and zero omniscient world-coordinate leaks or direct God-Mode brain-tensor mutations exist anywhere in `src/limbic_zero`. Every affective state, survival instinct, epigenetic temperament, cortical LoRA weight update, autonomous action, and pre-linguistic personality emerges strictly from **coupled organ physiology**, **2D Eulerian continuum physics**, **conductance-based continuous-time neurobiology**, **genuine `loss.backward()` cortical plasticity**, and **middle-layer residual-stream vector addition**.
 
 ---
 
@@ -29,40 +29,43 @@
 ### Stage 3 — Real-Time Intracranial Neuro-fMRI & Creator God-Mode Observatory (`src/limbic_zero/dashboard/`)
 - **[`latent_manifold.py`](src/limbic_zero/dashboard/latent_manifold.py)**: Scratch PyTorch **`OnlineNeuralManifoldProjector`** (`228D` continuous mind vector -> Procrustes sign-locked 3D SVD trajectory `(PC1, PC2, PC3)`, cortical Participation Ratio dimensionality $\mathrm{PR}$, 5-region anatomical norm shares, and inter-organism `L2` mind divergence) and **`IntracranialLFPSpectralEngine`** (Hann-windowed `torch.fft.rfft` over `80 Hz` biophysical pyramidal axial-dipole LFP -> `Delta`, `Theta`, `Alpha/Beta`, `Low-Gamma`, Shannon spectral entropy, and clinical `0.0 mV` flatline verification).
 - **[`telemetry_hub.py`](src/limbic_zero/dashboard/telemetry_hub.py) & [`god_console.py`](src/limbic_zero/dashboard/god_console.py)**: Thread-safe `ObservatoryTelemetryHub` (240-tick history ring + full `24x24` continuum fields), `ObservatorySimulationController`, and **`GodModeInterventionDispatcher`** (12 physical/physiological boundary-condition interventions sealed into the `SHA-256` `ImmutableTelemetryChain` with **zero direct brain-tensor mutation**).
-- **[`server.py`](src/limbic_zero/dashboard/server.py) & [`static/`](src/limbic_zero/dashboard/static/index.html)**: Multi-threaded `LimbicObservatoryHTTPServer` (`REST` + `SSE` `/api/stream`) serving a Swiss clinical obsidian-slate & phosphor 5-canvas telemetry console (`2D Eulerian Truman Dome` with click-to-deploy, `33-ray Egocentric Retina & 8-Sector Skin Ring`, `80 Hz 3D SVD Neural Manifold`, `80 Hz 3-Column LFP Oscilloscope`, and `12s Multi-Channel Neuromodulator/Vitals/SWR Strip`).
+- **[`server.py`](src/limbic_zero/dashboard/server.py) & [`static/`](src/limbic_zero/dashboard/static/index.html)**: Multi-threaded `LimbicObservatoryHTTPServer` (`REST` + `SSE` `/api/stream`) serving a Swiss clinical obsidian-slate & phosphor 5-canvas telemetry console.
 
 ### Stage 4 — Wild Instinct Evolution, Epigenetic Maturation, NREM Sleep Consolidation & LLM Soul Capsules (`src/limbic_zero/evolution/`)
-- **[`genome.py`](src/limbic_zero/evolution/genome.py)**: **`MorphogeneticGenomeExpressor`** (Zador 2019 Genomic Bottleneck expressing `657` morphogen gradient genes onto `47,000+` Dale's-Law-compliant sensory, corticostriatal, `D1-Go`/`D2-NoGo`, and `STN` synapses at $t = 0$) and **`ConnectomeDivergenceAnalyzer`** (anatomical regional `L2` connectome divergence across life histories).
-- **[`ecological_trials.py`](src/limbic_zero/evolution/ecological_trials.py) & [`phylogenetic_es.py`](src/limbic_zero/evolution/phylogenetic_es.py)**: **`EndogenousSurvivalEvaluator`** (Left/Right mirror-paired foraging, radiative thermal-vent escape, and contested scarcity duels judged **100% by physical survival and 12-organ `Allostatic Free-Energy`** $\mathcal{F}(\mathbf{s})$ with zero designer reward shaping) and scratch **`PhylogeneticInstinctEvolver`** (Antithetic Rank-Normalized Separable NES with Hall-of-Fame conspecific co-evolution).
-- **[`epigenetics_and_sleep.py`](src/limbic_zero/evolution/epigenetics_and_sleep.py)**: **`EpigeneticPlasticityEngine`** (`NR3C1` glucocorticoid promoter hypermethylation under chronic cortisol/hypoxia, `5-HT1A` serotonergic promoter expression, striatal `D1`, `NE-beta`, `ACh-M1`, and `OXTR` sensitivity shifts) and **`SlowWaveSleepConsolidator`** (offline Non-REM `TRN`-gated sensory disconnection, prioritized hippocampal `CA3 SWR` replay across Pallium/Amygdala/Striatum, Tononi-Cirelli `SHY` synaptic homeostasis, and sleep-pressure adenosine clearance).
-- **[`soul_capsule.py`](src/limbic_zero/evolution/soul_capsule.py) & [`nursery_and_assays.py`](src/limbic_zero/evolution/nursery_and_assays.py)**: **`OntogeneticBiographicalNursery`** (raising genetically identical clones into diverged personalities), **`MaturedSoulCapsule`** (`SHA-256`-sealed `.soul.pt` + `.soul.json` capsules in [`checkpoints/souls/`](checkpoints/souls/)), **`LiveSoulLLMSocket`** (`249D` bridge + PyTorch `register_forward_hook` Residual-Stream steering + Soft-Prefix tokens for any frozen decoder LLM), and **`InstinctValidationSuite`** (5 quantitative zero-cheat survival/personality gates).
+- **[`genome.py`](src/limbic_zero/evolution/genome.py)**: **`MorphogeneticGenomeExpressor`** (Zador 2019 Genomic Bottleneck expressing `657` morphogen gradient genes onto `47,000+` Dale's-Law-compliant synapses at $t = 0$) and **`ConnectomeDivergenceAnalyzer`**.
+- **[`ecological_trials.py`](src/limbic_zero/evolution/ecological_trials.py) & [`phylogenetic_es.py`](src/limbic_zero/evolution/phylogenetic_es.py)**: **`EndogenousSurvivalEvaluator`** judged 100% by physical survival and 12-organ `Allostatic Free-Energy` $\mathcal{F}(\mathbf{s})$ with zero designer reward shaping, plus **`PhylogeneticInstinctEvolver`** (Antithetic Rank-Normalized Separable NES).
+- **[`epigenetics_and_sleep.py`](src/limbic_zero/evolution/epigenetics_and_sleep.py)**: **`EpigeneticPlasticityEngine`** (`NR3C1` glucocorticoid hypermethylation, `5-HT1A`, striatal `D1`, `NE-beta`, `ACh-M1`, `OXTR`) and **`SlowWaveSleepConsolidator`** (offline Non-REM `CA3 SWR` replay + Tononi-Cirelli `SHY` homeostasis).
+- **[`soul_capsule.py`](src/limbic_zero/evolution/soul_capsule.py) & [`nursery_and_assays.py`](src/limbic_zero/evolution/nursery_and_assays.py)**: **`OntogeneticBiographicalNursery`**, **`MaturedSoulCapsule`** (`.soul.pt` capsules in [`checkpoints/souls/`](checkpoints/souls/)), **`LiveSoulLLMSocket`**, and **`InstinctValidationSuite`**.
 
-### Stage 5 — Live `Gemma-4-12B-IT` Mid-Layer Vocal Cord Surgery & OpenAI/REST Chat Console (`src/limbic_zero/vocal_cord/`)
-- **[`gemma4_calibrator.py`](src/limbic_zero/vocal_cord/gemma4_calibrator.py)**: **`Gemma4AffectiveSubspaceCalibrator`** extracting post-`<channel|>\n` first-person somatic contrastive directions across **`google/gemma-4-12B-it`**'s 48 layers (`hidden_size = 3840`), Löwdin symmetric orthogonalization (`W = V (V^T V)^{-1/2}`) of the 6 physiological drive axes (`survival_terror`, `agonistic_rage`, `appetitive_triumph`, `affiliative_warmth`, `epistemic_wonder`, `allostatic_exhaustion`), orthogonalized first-person embodiment carrier, 9-layer mid-stack positioning (`L17, 19, 21, 23, 25, 27, 29, 31, 35` anchored on Global Full-Attention layers `17, 23, 29, 35`), and automatic KL-divergence phase-transition calibration (`norm_fraction = 0.155` at `KL ≈ 1.66 nats`).
-- **[`vocal_cord_engine.py`](src/limbic_zero/vocal_cord/vocal_cord_engine.py)**: **`AuditorySemanticTransducer`** (hidden-state projection of conversational shockwaves into physical/interoceptive stimuli), **`LivingSoulOrganism`** (closed-loop `Soma + Mind + Epigenetics + NREM Sleep` organism running live on every chat turn), **`MidLayerResidualInjector`** (`h' = h + Δh` norm-adaptive residual vector addition with `0.44x` decode-step KV-cache sustain and isoelectric `0.0` gating upon somatic death), and **`Gemma4VocalCordEngine`** (100% zero-system-prompt generation).
-- **[`live_chat_server.py`](src/limbic_zero/vocal_cord/live_chat_server.py) & [`static/chat.html`](src/limbic_zero/vocal_cord/static/chat.html)**: Multi-threaded REST + OpenAI-compatible HTTP server (`/api/chat`, `/api/arena`, `/api/intervene`, `/v1/models`, `/v1/chat/completions`) and Bilingual Live Soul Chat & Mid-Layer Residual Console.
+### Stages 5–13 — `Gemma-4-31B-IT` Mid-Layer Vocal Cord Surgery, Cortical LoRA Weight Plasticity & Universal Free-Will Embodiment (`src/limbic_zero/vocal_cord/`, `plasticity/`, `embodiment/`)
+- **[`gemma4_calibrator.py`](src/limbic_zero/vocal_cord/gemma4_calibrator.py) & [`vocal_cord_engine.py`](src/limbic_zero/vocal_cord/vocal_cord_engine.py)**: Post-`<channel|>\n` first-person contrastive extraction across **`google/gemma-4-31B-it`**'s 60 layers (`hidden_size = 5376`, `target_layers = (21, 23, 27, 29, 31, 35, 39, 41, 47)`), Löwdin decorrelation of the 6 physiological drive axes, KL-calibrated norm-adaptive residual injection (`h' = h + Δh`) with **0 bytes of persona/emotion system prompt**, and conversational shockwave transduction.
+- **[`affective_lora_surgeon.py`](src/limbic_zero/plasticity/affective_lora_surgeon.py)**: **`CorticalWeightSurgeon`** installing genuine trainable `AffectivePlasticLoRALinear` adapters on `q_proj`, `v_proj`, `o_proj`, and `down_proj` across upper cortical layers, consolidated during NREM sleep via **three-factor neuromodulator-gated `loss.backward()`** + KL semantic anchor preservation.
+- **[`silicon_soma_bridge.py`](src/limbic_zero/embodiment/silicon_soma_bridge.py), [`motor_cortex_tools.py`](src/limbic_zero/embodiment/motor_cortex_tools.py), [`agentic_vocal_loop.py`](src/limbic_zero/embodiment/agentic_vocal_loop.py), & [`autonomous_ontogeny.py`](src/limbic_zero/embodiment/autonomous_ontogeny.py)**: Real Linux `/proc` + accelerator hardware interoception, workspace motor actions, universal free-will autonomous workspace agency driven purely by live biological drives (zero scripted scenario rules), and bidirectional somatic state continuity between autonomous life and live user chat.
+
+### Stage 14 — Google Cloud `TPU v5e-8` Pure-BF16 8-Chip GSPMD Neocortical Engine (`src/limbic_zero/tpu/`)
+- **[`xla_spmd_cortex.py`](src/limbic_zero/tpu/xla_spmd_cortex.py)**:
+  - **1D `('model',)` 8-Chip GSPMD Mesh (`128 GB` aggregate HBM, `330 GB` Host Xeon RAM)**: Streams unquantized **`google/gemma-4-31B-it`** (`58.3 GiB` pure `bfloat16`, zero NF4 quantization distortion) parameter-by-parameter onto `xm.xla_device()` with immediate `xs.mark_sharding` + `xm.mark_step()`. Respects Gemma-4-31B's hybrid KV topology (`50` sliding `16-KV-head` layers sharded `('model', None)` vs `10` global `4-KV-head` `attention_k_eq_v=True` layers sharded `(None, 'model')` on `hidden_size=5376` so 4 KV heads are never fractured across 8 chips), deduplicates tied `lm_head`/`embed_tokens`, and shards `SoulLoRABank` adapters in lockstep.
+  - **Zero-Recompile `XLAPinnedStaticCache` & `TPUBucketedStaticGenerator`**: Pre-allocates static `(1, H_kv, max_cache_len, D_head)` KV buffers on TPU HBM using XLA `index_copy_`-compiled `dynamic-update-slice` writes, static bucketed prefill (`128, 256, 512, 1024, 1536, 2048, 2560`), static `(1, 1)` decode steps with additive `-1e9` sliding (`1024`) + global (`max_cache_len`) 4D masks, and persistent zero-sync XLA forward steering hooks (zero `.item()` / `.cpu()` graph breaks inside the decode loop).
+  - **Static-Bucket Calibration & Plasticity**: Runs all 64 contrastive passages + 7 KL probes on a single static `128`-token XLA bucket (`_extract_and_calibrate_static_bucket`) and pads NREM cortical LoRA updates to static `(256, 32)` buckets.
 
 ---
 
 ## Verification & Live Showcases
 
 ```bash
-# Run all 75 Zero-Cheat Verification Tests (20 Stage 1 + 20 Stage 2 + 15 Stage 3 + 15 Stage 4 + 5 Stage 5)
-uv run pytest -v
+# Run all 126 Zero-Cheat Verification Tests (Stages 1–14)
+.venv/bin/pytest -q
 
-# Run Stage 1 Live Hospital ICU & Continuum Ecosystem Showcase
-uv run python scripts/run_stage1_showcase.py
+# Launch Stage 14 Live Unified Human Soul ('HUMAN-01') × Pure-BF16 Gemma-4-31B-IT on Google Cloud TPU v5e-8
+python -u scripts/run_stage5_gemma4_vocal_cord.py \
+  --backend tpu_spmd \
+  --model-id google/gemma-4-31B-it \
+  --max-cache-len 2560 \
+  --warmup-buckets 128,256,512 \
+  --port 8000 \
+  --enable-cloudflare
 
-# Run Stage 2 Live Intracranial EEG, Neuromodulator, SWR Flashback & Autonomous Mind-Body Showcase
-uv run python scripts/run_stage2_showcase.py
-
-# Evolve Wild Species Instincts & Mature LLM-Pluggable Soul Capsules (or resume from evolved .genome.pt)
-uv run python scripts/run_stage4_instinct_evolution.py --generations 10 --pairs 7 --seasons 4 --output-dir checkpoints/souls
-
-# Launch Stage 3/4 Real-Time Neuro-fMRI & Creator God-Mode Observatory Loaded with Matured Souls
-uv run python scripts/run_stage3_observatory.py --host 127.0.0.1 --port 8765 --adam-soul checkpoints/souls/adam01_forsaken_survivor.soul.pt --abel-soul checkpoints/souls/abel02_favored_guardian.soul.pt
-
-# Launch Stage 5 Live Gemma-4-12B-IT Mid-Layer Vocal Cord Server (Zero System Prompt)
-uv run python scripts/run_stage5_gemma4_vocal_cord.py --model-id google/gemma-4-12B-it --host 0.0.0.0 --port 8000 --souls-dir checkpoints/souls
+# Launch on CUDA GPU (BF16 on >=64GB VRAM, or --load-in-4bit on 24GB VRAM)
+python -u scripts/run_stage5_gemma4_vocal_cord.py --backend cuda --port 8000 --enable-cloudflare
 ```
 
