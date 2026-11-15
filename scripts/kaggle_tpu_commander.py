@@ -294,7 +294,6 @@ def provision_kaggle_tpu_v5e8_session(
     """Quick-save metadata with Gemma-4-31B mount and allocate a live interactive TPU v5e-8 VM."""
     _require_kaggle_token()
     from kagglesdk import KaggleClient  # type: ignore[import-not-found]
-    from kagglesdk.common.types.operations import ApiGetOperationRequest  # type: ignore[import-not-found]
     from kagglesdk.kernels.types.kernels_api_service import (  # type: ignore[import-not-found]
         ApiCreateKernelSessionRequest,
     )
@@ -357,9 +356,7 @@ def provision_kaggle_tpu_v5e8_session(
     session_resp: Dict[str, Any] = {}
     for _ in range(60):
         time.sleep(4.0)
-        gop = ApiGetOperationRequest()
-        gop.name = op_name
-        st = client.operations.operations_client.get_operation(gop)
+        st = client.common.operations_client.get_operation(name=op_name)
         if st.done:
             if st.error and getattr(st.error, "message", ""):
                 raise RuntimeError(f"CreateKernelSession failed: {st.error.message}")
@@ -380,11 +377,15 @@ def provision_kaggle_tpu_v5e8_session(
     if not jupyter_url:
         raise RuntimeError(f"Timed out or missing tokenizedJupyterUrl from operation `{op_name}`: {session_resp}")
 
+    m_sid = re.search(r"/k/(\d+)/", jupyter_url)
+    kernel_session_id = int(session_resp.get("kernelSessionId") or session_resp.get("id") or (m_sid.group(1) if m_sid else 0))
+
     elapsed = round(time.perf_counter() - t0, 1)
-    print(f"[COMMANDER] TPU v5e-8 VM allocated in {elapsed}s!", flush=True)
+    print(f"[COMMANDER] TPU v5e-8 VM allocated in {elapsed}s (session_id={kernel_session_id})!", flush=True)
 
     saved = {
         "slug": full_slug,
+        "kernel_session_id": kernel_session_id,
         "operation_name": op_name,
         "jupyter_url": jupyter_url,
         "provisioned_at_unix": time.time(),
@@ -396,7 +397,7 @@ def provision_kaggle_tpu_v5e8_session(
 
 
 def stop_kaggle_tpu_session(
-    slug: str,
+    kernel_session_id: int,
     state_file: Path = DEFAULT_STATE_FILE,
 ) -> None:
     """Cancel an active interactive Kaggle TPU session cleanly to preserve weekly TPU quota."""
@@ -408,9 +409,9 @@ def stop_kaggle_tpu_session(
 
     client = KaggleClient()
     req = ApiCancelKernelSessionRequest()
-    req.slug = slug
+    req.kernel_session_id = int(kernel_session_id)
     client.kernels.kernels_api_client.cancel_kernel_session(req)
-    print(f"[COMMANDER] Cancelled interactive TPU session for `{slug}`.", flush=True)
+    print(f"[COMMANDER] Cancelled interactive TPU session `{kernel_session_id}`.", flush=True)
     if state_file.is_file():
         state_file.unlink(missing_ok=True)
 
@@ -430,7 +431,7 @@ def main() -> None:
     p_exec.add_argument("--timeout", type=float, default=300.0)
 
     p_stop = sub.add_parser("stop", help="Cancel active Kaggle TPU session")
-    p_stop.add_argument("--slug", type=str, default="")
+    p_stop.add_argument("--session-id", type=int, default=0)
 
     args = parser.parse_args()
     if args.cmd == "provision":
@@ -447,12 +448,12 @@ def main() -> None:
         if err:
             raise SystemExit(f"Remote execution error:\n{err}")
     elif args.cmd == "stop":
-        slug = args.slug
-        if not slug and DEFAULT_STATE_FILE.is_file():
-            slug = json.loads(DEFAULT_STATE_FILE.read_text(encoding="utf-8")).get("slug", "")
-        if not slug:
-            raise SystemExit("Provide --slug owner/kernel-name or have an active session state file.")
-        stop_kaggle_tpu_session(slug)
+        sid = int(args.session_id)
+        if not sid and DEFAULT_STATE_FILE.is_file():
+            sid = int(json.loads(DEFAULT_STATE_FILE.read_text(encoding="utf-8")).get("kernel_session_id", 0))
+        if not sid:
+            raise SystemExit("Provide --session-id or have an active session state file.")
+        stop_kaggle_tpu_session(sid)
 
 
 if __name__ == "__main__":
