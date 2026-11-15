@@ -289,6 +289,7 @@ def provision_kaggle_tpu_v5e8_session(
     kernel_slug_name: str = "limbic0-stage14-tpu-v5e8",
     kaggle_cli_bin: str = "kaggle",
     model_source: str = DEFAULT_MODEL_SOURCE,
+    skip_push: bool = False,
     state_file: Path = DEFAULT_STATE_FILE,
 ) -> Dict[str, Any]:
     """Allocate a live interactive TPU v5e-8 VM (optionally mounting a Kaggle Model source)."""
@@ -299,8 +300,8 @@ def provision_kaggle_tpu_v5e8_session(
         ApiGetAcceleratorQuotaStatisticsRequest,
     )
 
-    if model_source:
-        full_slug = f"{owner}/{kernel_slug_name}"
+    full_slug = f"{owner}/{kernel_slug_name}"
+    if not skip_push:
         with tempfile.TemporaryDirectory(prefix="limbic0_kpush_") as tmpdir:
             tpath = Path(tmpdir)
             meta = {
@@ -317,7 +318,7 @@ def provision_kaggle_tpu_v5e8_session(
                 "dataset_sources": [],
                 "competition_sources": [],
                 "kernel_sources": [],
-                "model_sources": [model_source],
+                "model_sources": [model_source] if model_source else [],
             }
             (tpath / "kernel-metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
             nb = {
@@ -342,9 +343,6 @@ def provision_kaggle_tpu_v5e8_session(
             push_cmd = [kaggle_cli_bin, "kernels", "push", "--no-run", "-p", str(tpath)]
             print(f"[COMMANDER] Pushing kernel definition `{full_slug}` with `{model_source}`...", flush=True)
             subprocess.run(push_cmd, check=True)
-    else:
-        # Fresh ephemeral interactive notebook slug avoids CPU docker_image pinning from SaveKernel
-        full_slug = f"{owner}/notebook{uuid.uuid4().hex[:10]}"
 
     client = KaggleClient()
     req = ApiCreateKernelSessionRequest()
@@ -361,7 +359,7 @@ def provision_kaggle_tpu_v5e8_session(
 
     jupyter_url = ""
     session_resp: Dict[str, Any] = {}
-    for step_idx in range(60):
+    for step_idx in range(90):
         time.sleep(5.0)
         st = client.common.operations_client.get_operation(name=op_name)
         if step_idx % 3 == 0 and not st.done:
@@ -448,6 +446,7 @@ def main() -> None:
     p_prov.add_argument("--slug-name", type=str, default="limbic0-stage14-tpu-v5e8")
     p_prov.add_argument("--kaggle-bin", type=str, default=shutil.which("kaggle") or "kaggle")
     p_prov.add_argument("--model-source", type=str, default=DEFAULT_MODEL_SOURCE)
+    p_prov.add_argument("--skip-push", action="store_true", help="Skip SaveKernel push if kernel slug already exists")
 
     p_exec = sub.add_parser("exec-py", help="Execute Python snippet on active Kaggle TPU VM")
     p_exec.add_argument("--code", type=str, required=True)
@@ -463,6 +462,7 @@ def main() -> None:
             kernel_slug_name=args.slug_name,
             kaggle_cli_bin=args.kaggle_bin,
             model_source=args.model_source,
+            skip_push=args.skip_push,
         )
         print(json.dumps({k: v for k, v in info.items() if k != "jupyter_url"}, indent=2))
     elif args.cmd == "exec-py":
