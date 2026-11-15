@@ -291,72 +291,88 @@ def provision_kaggle_tpu_v5e8_session(
     model_source: str = DEFAULT_MODEL_SOURCE,
     state_file: Path = DEFAULT_STATE_FILE,
 ) -> Dict[str, Any]:
-    """Quick-save metadata with Gemma-4-31B mount and allocate a live interactive TPU v5e-8 VM."""
+    """Allocate a live interactive TPU v5e-8 VM (optionally mounting a Kaggle Model source)."""
     _require_kaggle_token()
     from kagglesdk import KaggleClient  # type: ignore[import-not-found]
     from kagglesdk.kernels.types.kernels_api_service import (  # type: ignore[import-not-found]
         ApiCreateKernelSessionRequest,
+        ApiGetAcceleratorQuotaStatisticsRequest,
     )
 
-    full_slug = f"{owner}/{kernel_slug_name}"
-    with tempfile.TemporaryDirectory(prefix="limbic0_kpush_") as tmpdir:
-        tpath = Path(tmpdir)
-        meta = {
-            "id": full_slug,
-            "title": kernel_slug_name,
-            "code_file": "runner.ipynb",
-            "language": "python",
-            "kernel_type": "notebook",
-            "is_private": True,
-            "enable_gpu": False,
-            "enable_tpu": True,
-            "enable_internet": True,
-            "machine_shape": "TpuV5E8",
-            "dataset_sources": [],
-            "competition_sources": [],
-            "kernel_sources": [],
-            "model_sources": [model_source],
-        }
-        (tpath / "kernel-metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        nb = {
-            "cells": [
-                {
-                    "cell_type": "code",
-                    "execution_count": None,
-                    "metadata": {},
-                    "outputs": [],
-                    "source": ["print('LIMBIC-0 Stage 14 TPU v5e-8 Interactive Host Ready')\n"],
-                }
-            ],
-            "metadata": {
-                "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-                "language_info": {"name": "python"},
-            },
-            "nbformat": 4,
-            "nbformat_minor": 5,
-        }
-        (tpath / "runner.ipynb").write_text(json.dumps(nb, indent=2), encoding="utf-8")
+    if model_source:
+        full_slug = f"{owner}/{kernel_slug_name}"
+        with tempfile.TemporaryDirectory(prefix="limbic0_kpush_") as tmpdir:
+            tpath = Path(tmpdir)
+            meta = {
+                "id": full_slug,
+                "title": kernel_slug_name,
+                "code_file": "runner.ipynb",
+                "language": "python",
+                "kernel_type": "notebook",
+                "is_private": True,
+                "enable_gpu": False,
+                "enable_tpu": True,
+                "enable_internet": True,
+                "machine_shape": "TpuV5E8",
+                "dataset_sources": [],
+                "competition_sources": [],
+                "kernel_sources": [],
+                "model_sources": [model_source],
+            }
+            (tpath / "kernel-metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+            nb = {
+                "cells": [
+                    {
+                        "cell_type": "code",
+                        "execution_count": None,
+                        "metadata": {},
+                        "outputs": [],
+                        "source": ["print('LIMBIC-0 Stage 14 TPU v5e-8 Interactive Host Ready')\n"],
+                    }
+                ],
+                "metadata": {
+                    "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+                    "language_info": {"name": "python"},
+                },
+                "nbformat": 4,
+                "nbformat_minor": 5,
+            }
+            (tpath / "runner.ipynb").write_text(json.dumps(nb, indent=2), encoding="utf-8")
 
-        push_cmd = [kaggle_cli_bin, "kernels", "push", "--no-run", "-p", str(tpath)]
-        print(f"[COMMANDER] Pushing zero-queue kernel definition `{full_slug}` with `{model_source}`...", flush=True)
-        subprocess.run(push_cmd, check=True)
+            push_cmd = [kaggle_cli_bin, "kernels", "push", "--no-run", "-p", str(tpath)]
+            print(f"[COMMANDER] Pushing kernel definition `{full_slug}` with `{model_source}`...", flush=True)
+            subprocess.run(push_cmd, check=True)
+    else:
+        # Fresh ephemeral interactive notebook slug avoids CPU docker_image pinning from SaveKernel
+        full_slug = f"{owner}/notebook{uuid.uuid4().hex[:10]}"
 
     client = KaggleClient()
     req = ApiCreateKernelSessionRequest()
     req.slug = full_slug
+    req.language = "python"
+    req.kernel_type = "notebook"
     req.machine_shape = "TpuV5E8"
     req.enable_internet = True
 
     t0 = time.perf_counter()
     op = client.kernels.kernels_api_client.create_kernel_session(req)
     op_name = op.name
-    print(f"[COMMANDER] CreateKernelSession started (`{op_name}`). Waiting for TPU v5e-8 VM...", flush=True)
+    print(f"[COMMANDER] CreateKernelSession started (`{op_name}`, slug=`{full_slug}`). Waiting for TPU v5e-8 VM...", flush=True)
 
     jupyter_url = ""
     session_resp: Dict[str, Any] = {}
-    for _ in range(60):
-        time.sleep(4.0)
+    for step_idx in range(60):
+        time.sleep(5.0)
         st = client.common.operations_client.get_operation(name=op_name)
+        if step_idx % 3 == 0 and not st.done:
+            q = client.kernels.kernels_api_client.get_accelerator_quota_statistics(
+                ApiGetAcceleratorQuotaStatisticsRequest()
+            )
+            tpu_res = q.tpu_quota.time_reserved if q.tpu_quota else "0s"
+            print(
+                f"[COMMANDER] [{time.perf_counter() - t0:.1f}s] Provisioning GCE TPU v5e-8 slice (reserved={tpu_res})...",
+                flush=True,
+            )
         if st.done:
             if st.error and getattr(st.error, "message", ""):
                 raise RuntimeError(f"CreateKernelSession failed: {st.error.message}")
@@ -369,7 +385,9 @@ def provision_kaggle_tpu_v5e8_session(
                 session_resp = dict(raw_resp or {})
             jupyter_url = str(
                 session_resp.get("tokenizedJupyterUrl")
+                or session_resp.get("tokenized_jupyter_url")
                 or session_resp.get("jupyterUrl")
+                or session_resp.get("jupyter_url")
                 or ""
             )
             break
@@ -378,7 +396,12 @@ def provision_kaggle_tpu_v5e8_session(
         raise RuntimeError(f"Timed out or missing tokenizedJupyterUrl from operation `{op_name}`: {session_resp}")
 
     m_sid = re.search(r"/k/(\d+)/", jupyter_url)
-    kernel_session_id = int(session_resp.get("kernelSessionId") or session_resp.get("id") or (m_sid.group(1) if m_sid else 0))
+    kernel_session_id = int(
+        session_resp.get("kernelSessionId")
+        or session_resp.get("kernel_session_id")
+        or session_resp.get("id")
+        or (m_sid.group(1) if m_sid else 0)
+    )
 
     elapsed = round(time.perf_counter() - t0, 1)
     print(f"[COMMANDER] TPU v5e-8 VM allocated in {elapsed}s (session_id={kernel_session_id})!", flush=True)
