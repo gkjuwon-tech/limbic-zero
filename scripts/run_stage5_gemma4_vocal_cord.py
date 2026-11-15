@@ -248,6 +248,20 @@ def main() -> None:
         evolution_cycle_interval_sec=args.evolution_interval_sec,
     )
     hub.start_background_heartbeats()
+
+    boot_pid_file = Path("/tmp/limbic0_boot_http.pid")
+    if boot_pid_file.is_file():
+        import os
+        import signal
+
+        try:
+            bpid = int(boot_pid_file.read_text(encoding="utf-8").strip())
+            os.kill(bpid, signal.SIGTERM)
+            time.sleep(0.5)
+        except Exception:
+            pass
+        boot_pid_file.unlink(missing_ok=True)
+
     if args.enable_cloudflare:
         _start_cloudflare_quick_tunnel(args.port, hub)
 
