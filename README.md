@@ -69,3 +69,17 @@ python -u scripts/run_stage5_gemma4_vocal_cord.py \
 python -u scripts/run_stage5_gemma4_vocal_cord.py --backend cuda --port 8000 --enable-cloudflare
 ```
 
+---
+
+## Google Colab Free `TPU v5e-1` (4-Bit `Gemma-4-31B-IT`) + Cloudflare Tunnel + External HTML Client
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gkjuwon-tech/limbic-zero/blob/main/notebooks/limbic_zero_colab_tpu_v5e_4bit.ipynb)
+
+- **Notebook**: [`notebooks/limbic_zero_colab_tpu_v5e_4bit.ipynb`](notebooks/limbic_zero_colab_tpu_v5e_4bit.ipynb) — built for Google Colab's free single-chip **`TPU v5e-1` (`16 GiB` HBM + `~50.5 GB` Host RAM)** where `31B` cannot fit in unquantized `bf16`. Streams `google/gemma-4-31B-it` shards into **`PackedInt4` (`group_size=128`)** with Hybrid TPU HBM + Host RAM split ([`tpu_quantizer.py`](src/limbic_zero/vocal_cord/tpu_quantizer.py)), opens a **`cloudflared` Quick Tunnel**, and exports a standalone external HTML file (`limbic_external_chat.html`).
+- **One-Command Colab TPU v5e-1 Shell Launcher**:
+  ```bash
+  bash scripts/run_colab_tpu_v5e_4bit.sh
+  ```
+- **Standalone External HTML Chat UI (Outside Colab)**: Open [`web/limbic_chat_client.html`](web/limbic_chat_client.html) directly on your local PC, Mac, or phone (`file://` or any static host) and paste the Colab `https://*.trycloudflare.com` URL into the top **`서버 연결`** bar (or download the pre-configured HTML from `GET /api/client-html`).
+
+

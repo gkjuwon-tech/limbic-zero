@@ -103,18 +103,25 @@ class SoulLoRABank(nn.Module):
         return self.scaling * math.sqrt(sq)
 
     def forward_delta(self, x: torch.Tensor) -> torch.Tensor:
-        x_f32 = x.float()
+        orig_dev = x.device
+        x_in = x.to(self.lora_A.device) if orig_dev != self.lora_A.device else x
+        x_f32 = x_in.float()
         low_rank = F.linear(x_f32, self.lora_A)
         delta = F.linear(low_rank, self.lora_B) * self.scaling
-        return delta.to(dtype=x.dtype)
+        out = delta.to(dtype=x.dtype)
+        return out.to(orig_dev) if out.device != orig_dev else out
+
+
+def _is_wrappable_linear_module(mod: Any) -> bool:
+    return isinstance(mod, nn.Linear) or bool(getattr(mod, "is_quantized_int4", False))
 
 
 class AffectivePlasticLoRALinear(nn.Module):
-    """Wraps a frozen ``nn.Linear`` with per-soul switchable ``SoulLoRABank`` synapses."""
+    """Wraps a frozen ``nn.Linear`` or ``PackedInt4Linear`` with per-soul ``SoulLoRABank`` synapses."""
 
     def __init__(
         self,
-        base_linear: nn.Linear,
+        base_linear: nn.Module,
         routing_state: _PlasticRoutingState,
         layer_idx: int,
         proj_name: str,
@@ -123,32 +130,35 @@ class AffectivePlasticLoRALinear(nn.Module):
     ) -> None:
         super().__init__()
         self.base_linear = base_linear
-        self.base_linear.weight.requires_grad_(False)
-        if self.base_linear.bias is not None:
-            self.base_linear.bias.requires_grad_(False)
+        w_ref = getattr(self.base_linear, "weight", None)
+        if isinstance(w_ref, torch.Tensor) and w_ref.is_floating_point():
+            w_ref.requires_grad_(False)
+        b_ref = getattr(self.base_linear, "bias", None)
+        if isinstance(b_ref, torch.Tensor) and b_ref.is_floating_point():
+            b_ref.requires_grad_(False)
 
         self._routing = routing_state
         self.layer_idx = int(layer_idx)
         self.proj_name = str(proj_name)
-        self.in_features = int(base_linear.in_features)
-        self.out_features = int(base_linear.out_features)
+        self.in_features = int(base_linear.in_features)  # type: ignore[arg-type]
+        self.out_features = int(base_linear.out_features)  # type: ignore[arg-type]
         self.rank = int(rank)
         self.alpha = float(alpha)
         self.banks = nn.ModuleDict()
 
     @property
     def weight(self) -> torch.Tensor:
-        return self.base_linear.weight
+        return self.base_linear.weight  # type: ignore[return-value]
 
     @property
     def bias(self) -> Optional[torch.Tensor]:
-        return self.base_linear.bias
+        return self.base_linear.bias  # type: ignore[return-value]
 
     def ensure_bank(self, bank_id: str) -> SoulLoRABank:
         if bank_id not in self.banks:
             seed_bytes = hashlib.sha256(f"{bank_id}:{self.layer_idx}:{self.proj_name}".encode("utf-8")).digest()
             seed_int = int.from_bytes(seed_bytes[:4], "big") & 0x7FFFFFFF
-            dev = self.base_linear.weight.device
+            dev = self.base_linear.weight.device  # type: ignore[union-attr]
             bank = SoulLoRABank(
                 in_features=self.in_features,
                 out_features=self.out_features,
@@ -157,7 +167,7 @@ class AffectivePlasticLoRALinear(nn.Module):
                 device=dev,
                 seed=seed_int,
             )
-            if dev.type == "xla":
+            if dev.type == "xla" and not getattr(self.base_linear, "is_quantized_int4", False):
                 try:
                     from limbic_zero.tpu.xla_spmd_cortex import (
                         compute_gemma4_lora_partition_specs,
@@ -165,16 +175,17 @@ class AffectivePlasticLoRALinear(nn.Module):
                     )
 
                     spmd_ctx = initialize_tpu_spmd_runtime(cache_dir=None)
-                    spec_a, spec_b = compute_gemma4_lora_partition_specs(
-                        self.proj_name,
-                        self.in_features,
-                        self.out_features,
-                        num_devices=spmd_ctx.num_devices,
-                    )
-                    if spec_a is not None:
-                        spmd_ctx.mark_sharding(bank.lora_A.data, spec_a)
-                    if spec_b is not None:
-                        spmd_ctx.mark_sharding(bank.lora_B.data, spec_b)
+                    if spmd_ctx.num_devices > 1:
+                        spec_a, spec_b = compute_gemma4_lora_partition_specs(
+                            self.proj_name,
+                            self.in_features,
+                            self.out_features,
+                            num_devices=spmd_ctx.num_devices,
+                        )
+                        if spec_a is not None:
+                            spmd_ctx.mark_sharding(bank.lora_A.data, spec_a)
+                        if spec_b is not None:
+                            spmd_ctx.mark_sharding(bank.lora_B.data, spec_b)
                 except Exception:
                     pass
             self.banks[bank_id] = bank
@@ -188,7 +199,7 @@ class AffectivePlasticLoRALinear(nn.Module):
         if not bank_id or bank_id not in self.banks:
             return base_out
         bank: SoulLoRABank = self.banks[bank_id]  # type: ignore[assignment]
-        return base_out + bank.forward_delta(x)
+        return base_out + bank.forward_delta(x).to(base_out.device)
 
 
 def _extract_logits_tensor(model_output: Any) -> torch.Tensor:
@@ -232,13 +243,15 @@ class CorticalWeightSurgeon:
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         from limbic_zero.vocal_cord.gemma4_calibrator import resolve_decoder_layers
+        from limbic_zero.vocal_cord.tpu_quantizer import resolve_model_input_device
 
         self._routing = _PlasticRoutingState()
         self.layers = resolve_decoder_layers(model)
         num_layers = len(self.layers)
-        self.device = next(model.parameters()).device
+        self.device = resolve_model_input_device(model)
+        is_4bit_hybrid = bool(getattr(model, "_limbic_tpu_4bit_hybrid", False))
         self.is_xla_static: bool = (
-            (self.device.type == "xla")
+            (self.device.type == "xla" and not is_4bit_hybrid)
             if use_xla_static_bucket is None
             else bool(use_xla_static_bucket)
         )
@@ -285,7 +298,7 @@ class CorticalWeightSurgeon:
                 if isinstance(leaf, AffectivePlasticLoRALinear):
                     self.wrapped_modules.append(leaf)
                     wrapped_in_layer += 1
-                elif isinstance(leaf, nn.Linear):
+                elif _is_wrappable_linear_module(leaf):
                     wrapper = AffectivePlasticLoRALinear(
                         base_linear=leaf,
                         routing_state=self._routing,
@@ -301,7 +314,7 @@ class CorticalWeightSurgeon:
             # Fallback for compact mock decoder blocks without HuggingFace `self_attn`/`mlp` naming
             if wrapped_in_layer == 0:
                 for child_name, child_mod in list(block.named_children()):
-                    if isinstance(child_mod, nn.Linear):
+                    if _is_wrappable_linear_module(child_mod):
                         wrapper = AffectivePlasticLoRALinear(
                             base_linear=child_mod,
                             routing_state=self._routing,

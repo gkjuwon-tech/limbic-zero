@@ -9,14 +9,38 @@ cd "$REPO_DIR"
 
 if [ -d "/kaggle/working" ]; then
   STATE_ROOT="/kaggle/working/limbic_state"
+  export HF_HOME="${LIMBIC_HF_HOME:-/kaggle/working/hf_cache}"
 elif [ -d "/content/drive/MyDrive" ]; then
   STATE_ROOT="/content/drive/MyDrive/limbic_state"
+  export HF_HOME="${LIMBIC_HF_HOME:-/content/hf_cache}"
 else
   STATE_ROOT="${LIMBIC_STATE_DIR:-/tmp/limbic_state}"
+  export HF_HOME="${LIMBIC_HF_HOME:-/tmp/hf_cache}"
 fi
 
-mkdir -p "$STATE_ROOT/hf_cache" "$STATE_ROOT/habitat" "$STATE_ROOT/plasticity" "$STATE_ROOT/evolution"
-export HF_HOME="$STATE_ROOT/hf_cache"
+TPU_DETECTED=$(python3 - <<'PY'
+import os
+if os.environ.get("COLAB_TPU_ADDR") or os.environ.get("TPU_NAME") or os.environ.get("PJRT_DEVICE", "").upper() == "TPU":
+    print(1)
+else:
+    found = 0
+    for mod in ("torch_tpu", "torch_xla"):
+        try:
+            __import__(mod)
+            found = 1
+            break
+        except Exception:
+            pass
+    print(found)
+PY
+)
+
+if [ "$TPU_DETECTED" = "1" ]; then
+  echo "[LIMBIC-0] Google Cloud TPU runtime detected -> delegating to scripts/run_colab_tpu_v5e_4bit.sh..."
+  exec bash "$REPO_DIR/scripts/run_colab_tpu_v5e_4bit.sh" "$@"
+fi
+
+mkdir -p "$HF_HOME" "$STATE_ROOT/subspace" "$STATE_ROOT/habitat" "$STATE_ROOT/plasticity" "$STATE_ROOT/evolution"
 export PYTHONUNBUFFERED="1"
 
 echo "[LIMBIC-0 FREE GPU] Installing runtime dependencies..."
@@ -54,11 +78,12 @@ exec python3 "$REPO_DIR/scripts/run_stage5_gemma4_vocal_cord.py" \
   --host 0.0.0.0 \
   --port 8000 \
   --souls-dir "$REPO_DIR/checkpoints/souls" \
-  --subspace-cache "$STATE_ROOT/hf_cache/${SAFE_SLUG}_subspace_v6.pt" \
+  --subspace-cache "$STATE_ROOT/subspace/${SAFE_SLUG}_subspace_v6.pt" \
   --habitat-dir "$STATE_ROOT/habitat" \
   --plasticity-dir "$STATE_ROOT/plasticity" \
   --evolution-dir "$STATE_ROOT/evolution" \
   --evolution-interval-sec 120 \
   --evolution-idle-grace-sec 25 \
   --enable-cloudflare \
-  "${EXTRA_ARGS[@]}"
+  "${EXTRA_ARGS[@]}" \
+  "$@"

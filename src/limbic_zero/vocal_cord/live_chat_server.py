@@ -475,13 +475,19 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         return
 
+    def _send_cors_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Cache-Control")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+
     def _send_json(self, payload: Dict[str, Any], status: int = HTTPStatus.OK) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         self.end_headers()
         self.wfile.write(raw)
 
@@ -495,9 +501,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self._send_cors_headers()
         self.end_headers()
 
     def do_GET(self) -> None:
@@ -514,8 +518,30 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-cache")
+            self._send_cors_headers()
             self.end_headers()
             self.wfile.write(data)
+            return
+
+        if route == "/api/client-html":
+            html_file = STATIC_DIR / "chat.html"
+            if not html_file.is_file():
+                self._send_json({"error": "chat.html missing"}, status=HTTPStatus.NOT_FOUND)
+                return
+            cf_url = str(hub.public_urls.get("cloudflare") or "").strip().rstrip("/")
+            raw_html = html_file.read_text(encoding="utf-8")
+            inject_script = (
+                f"<script>window.LIMBIC_DEFAULT_SERVER_URL = {json.dumps(cf_url)};</script>\n</head>"
+            )
+            exported = raw_html.replace("</head>", inject_script, 1).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="limbic_external_chat.html"')
+            self.send_header("Content-Length", str(len(exported)))
+            self.send_header("Cache-Control", "no-store")
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(exported)
             return
 
         if route == "/api/health":
@@ -642,7 +668,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache, no-transform")
             self.send_header("Connection", "close")
             self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self._send_cors_headers()
             self.end_headers()
             self.close_connection = True
 

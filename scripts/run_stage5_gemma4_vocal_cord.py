@@ -35,7 +35,11 @@ from limbic_zero.vocal_cord import (
 from limbic_zero.vocal_cord.gemma4_calibrator import resolve_decoder_layers
 
 
-def _start_cloudflare_quick_tunnel(local_port: int, hub: VocalCordRuntimeHub) -> None:
+def _start_cloudflare_quick_tunnel(
+    local_port: int,
+    hub: VocalCordRuntimeHub,
+    tunnel_url_file: str = "/tmp/limbic_cloudflare_url.txt",
+) -> None:
     import re
     import shutil
     import subprocess
@@ -67,22 +71,36 @@ def _start_cloudflare_quick_tunnel(local_port: int, hub: VocalCordRuntimeHub) ->
             if m:
                 url = m.group(0)
                 hub.public_urls["cloudflare"] = url
+                if tunnel_url_file:
+                    try:
+                        out_p = Path(tunnel_url_file)
+                        out_p.parent.mkdir(parents=True, exist_ok=True)
+                        out_p.write_text(url + "\n", encoding="utf-8")
+                    except Exception:
+                        pass
                 print(f"[STAGE 14] CLOUDFLARE PUBLIC URL: {url}", flush=True)
 
     threading.Thread(target=_runner, daemon=True).start()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="LIMBIC-0 Unified Soul × Gemma-4-31B-IT Server (TPU v5e-8 / CUDA)")
+    parser = argparse.ArgumentParser(description="LIMBIC-0 Unified Soul × Gemma-4-31B-IT Server (TPU v5e-8 / TPU v5e-1 4-bit / CUDA)")
     parser.add_argument("--model-id", type=str, default="google/gemma-4-31B-it")
     parser.add_argument(
         "--backend",
         type=str,
         default="auto",
-        choices=("auto", "tpu_spmd", "cuda", "cpu"),
-        help="Accelerator execution backend (`auto` prefers TPU GSPMD -> CUDA -> CPU)",
+        choices=("auto", "tpu_spmd", "tpu_4bit", "cuda", "cpu"),
+        help="Accelerator execution backend (`auto` selects tpu_spmd on v5e-8, tpu_4bit on single-chip Colab v5e-1 / --load-in-4bit, CUDA, or CPU)",
     )
-    parser.add_argument("--max-cache-len", type=int, default=2560, help="Pinned static KV-cache length on TPU")
+    parser.add_argument(
+        "--device-backend",
+        type=str,
+        default="",
+        choices=("", "auto", "tpu", "tpu_4bit", "tpu_spmd", "cuda", "cpu"),
+        help="Optional alias for accelerator selection (used by Colab TPU v5e-1 launcher)",
+    )
+    parser.add_argument("--max-cache-len", type=int, default=2560, help="Pinned static KV-cache length on TPU v5e-8")
     parser.add_argument(
         "--xla-cache-dir",
         type=str,
@@ -100,6 +118,7 @@ def main() -> None:
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--public-url", type=str, default="")
+    parser.add_argument("--tunnel-url-file", type=str, default="/tmp/limbic_cloudflare_url.txt")
     parser.add_argument("--habitat-dir", type=str, default="", help="Base directory for organism habitat")
     parser.add_argument("--plasticity-dir", type=str, default="", help="Directory for cortical LoRA banks")
     parser.add_argument("--evolution-dir", type=str, default="", help="Directory for evolved checkpoints & ledger")
@@ -108,33 +127,64 @@ def main() -> None:
     parser.add_argument("--disable-autonomous-evolution", action="store_true")
     parser.add_argument("--legacy-three-souls", action="store_true", help="Load legacy 3-soul comparison bank")
     parser.add_argument("--enable-cloudflare", action="store_true", help="Launch cloudflared tunnel automatically")
-    parser.add_argument("--load-in-4bit", action="store_true", help="Load model in NF4 4-bit (CUDA only)")
+    parser.add_argument(
+        "--load-in-4bit",
+        action="store_true",
+        help="Load model in 4-bit (PackedInt4 + Hybrid HBM/CPU split on Colab TPU v5e-1, or NF4 on CUDA)",
+    )
+    parser.add_argument(
+        "--tpu-hbm-budget-gb",
+        type=float,
+        default=12.5,
+        help="Max TPU HBM budget (GiB) for 4-bit layers on single-chip Colab TPU v5e-1 (default 12.5 GiB)",
+    )
+    parser.add_argument("--quant-group-size", type=int, default=128, help="Group size for TPU/CPU 4-bit quantization")
     args = parser.parse_args()
 
-    if args.backend == "auto":
-        if is_tpu_xla_available():
-            active_backend = "tpu_spmd"
-        elif torch.cuda.is_available():
+    from limbic_zero.vocal_cord.tpu_quantizer import detect_tpu_device, load_quantized_causal_lm_for_tpu
+
+    requested = args.device_backend if (args.device_backend and args.backend == "auto") else args.backend
+    tpu_info = detect_tpu_device() if requested in ("auto", "tpu", "tpu_4bit") else None
+
+    if requested in ("auto", "tpu"):
+        if args.load_in_4bit and ((tpu_info is not None and tpu_info.available) or is_tpu_xla_available()):
+            active_backend = "tpu_4bit"
+        elif is_tpu_xla_available():
+            # Check chip count: multi-chip (v5e-8) uses pure-BF16 GSPMD; single-chip (v5e-1) 16GB uses 4-bit streamer
+            try:
+                import torch_xla.runtime as xr  # type: ignore[import-not-found]
+                n_chips = int(xr.global_runtime_device_count())
+            except Exception:
+                n_chips = 8
+            active_backend = "tpu_4bit" if n_chips <= 1 else "tpu_spmd"
+        elif tpu_info is not None and tpu_info.available:
+            active_backend = "tpu_4bit"
+        elif torch.cuda.is_available() and requested != "tpu":
             active_backend = "cuda"
         else:
             active_backend = "cpu"
     else:
-        active_backend = args.backend
+        active_backend = requested
 
     t0 = time.perf_counter()
     spmd_ctx = None
-    model_source = args.model_id
+    model_source = resolve_kaggle_or_hf_model_source(args.model_id) if active_backend in ("tpu_spmd", "tpu_4bit") else args.model_id
 
     if active_backend == "tpu_spmd":
         spmd_ctx = initialize_tpu_spmd_runtime(cache_dir=args.xla_cache_dir or None)
-        model_source = resolve_kaggle_or_hf_model_source(args.model_id)
         print(
             f"[STAGE 14] Initialized PyTorch/XLA TPU GSPMD across {spmd_ctx.num_devices} chips "
             f"(device={spmd_ctx.device}, model_source={model_source})...",
             flush=True,
         )
+    elif active_backend == "tpu_4bit":
+        print(
+            f"[STAGE 14] Initializing single-chip Colab TPU v5e-1 4-bit PackedInt4 streamer "
+            f"(budget={args.tpu_hbm_budget_gb} GiB, group_size={args.quant_group_size}, source={model_source})...",
+            flush=True,
+        )
     else:
-        quant_label = "NF4 4-bit" if args.load_in_4bit else "bfloat16"
+        quant_label = "4-bit" if args.load_in_4bit else "bfloat16"
         print(f"[STAGE 14] Loading processor & frozen {args.model_id} on {active_backend} ({quant_label})...", flush=True)
 
     try:
@@ -146,14 +196,31 @@ def main() -> None:
 
     tok_obj = getattr(processor, "tokenizer", processor)
 
-    try:
-        from transformers import AutoModelForMultimodalLM
-        model_cls = AutoModelForMultimodalLM
-    except Exception:
-        from transformers import AutoModelForCausalLM
-        model_cls = AutoModelForCausalLM
-
-    if active_backend == "tpu_spmd":
+    if active_backend == "tpu_4bit" or (args.load_in_4bit and active_backend == "cpu"):
+        target_dev = (
+            tpu_info.device
+            if (active_backend == "tpu_4bit" and tpu_info is not None and tpu_info.available)
+            else torch.device("cpu")
+        )
+        model, _tpu4_summary = load_quantized_causal_lm_for_tpu(
+            model_id=model_source,
+            tpu_device=target_dev,
+            hbm_budget_gb=args.tpu_hbm_budget_gb,
+            group_size=args.quant_group_size,
+            overflow_device="cpu",
+            quantize_overflow_layers=(active_backend == "cpu"),
+        )
+        model.eval()
+        for p in model.parameters():
+            if p.is_floating_point():
+                p.requires_grad_(False)
+    elif active_backend == "tpu_spmd":
+        try:
+            from transformers import AutoModelForMultimodalLM
+            model_cls = AutoModelForMultimodalLM
+        except Exception:
+            from transformers import AutoModelForCausalLM
+            model_cls = AutoModelForCausalLM
         assert spmd_ctx is not None
         print(f"[STAGE 14] Loading pure bfloat16 weights into Host Xeon RAM from {model_source}...", flush=True)
         try:
@@ -179,6 +246,12 @@ def main() -> None:
         )
         print(f"[STAGE 14] TPU GSPMD Sharding Complete: {shard_report}", flush=True)
     else:
+        try:
+            from transformers import AutoModelForMultimodalLM
+            model_cls = AutoModelForMultimodalLM
+        except Exception:
+            from transformers import AutoModelForCausalLM
+            model_cls = AutoModelForCausalLM
         dtype = torch.bfloat16 if active_backend == "cuda" else torch.float32
         load_kwargs: Dict[str, object] = {
             "dtype": dtype,
@@ -197,7 +270,8 @@ def main() -> None:
         model = model_cls.from_pretrained(model_source, **load_kwargs)
         model.eval()
         for p in model.parameters():
-            p.requires_grad_(False)
+            if p.is_floating_point():
+                p.requires_grad_(False)
 
     num_layers = len(resolve_decoder_layers(model))
     cfg = Gemma4SteeringConfig.for_model(args.model_id, num_hidden_layers=num_layers)
@@ -389,7 +463,7 @@ def main() -> None:
         boot_pid_file.unlink(missing_ok=True)
 
     if args.enable_cloudflare:
-        _start_cloudflare_quick_tunnel(args.port, hub)
+        _start_cloudflare_quick_tunnel(args.port, hub, tunnel_url_file=args.tunnel_url_file)
 
     srv = VocalCordHTTPServer((args.host, args.port), hub=hub)
     print(f"[STAGE 14] UNIFIED HUMAN SOUL SERVER LIVE ON http://{args.host}:{args.port} (backend={active_backend})", flush=True)

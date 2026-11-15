@@ -379,8 +379,15 @@ class ContrastiveSubspaceExtractor:
         else:
             chosen_weights = tuple(1.0 / len(chosen_layers) for _ in chosen_layers)
 
-        dev = next(model.parameters()).device
-        is_xla = (dev.type == "xla") if use_xla_static_bucket is None else bool(use_xla_static_bucket)
+        from limbic_zero.vocal_cord.tpu_quantizer import resolve_model_input_device, sync_tpu_device
+
+        dev = resolve_model_input_device(model)
+        is_4bit_hybrid = bool(getattr(model, "_limbic_tpu_4bit_hybrid", False))
+        is_xla = (
+            (dev.type == "xla" and not is_4bit_hybrid)
+            if use_xla_static_bucket is None
+            else bool(use_xla_static_bucket)
+        )
 
         if is_xla:
             return self._extract_and_calibrate_static_bucket(
@@ -431,6 +438,7 @@ class ContrastiveSubspaceExtractor:
             span_state["start"] = int(raw_enc.get("_assistant_span_start", -1))
             model_inputs = {k: v.to(dev) for k, v in raw_enc.items() if isinstance(v, torch.Tensor)}
             model(**model_inputs, use_cache=False)
+            sync_tpu_device(dev)
 
         try:
             for axis_name in SUBSPACE_AXIS_NAMES:

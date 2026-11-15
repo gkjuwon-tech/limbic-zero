@@ -1006,12 +1006,17 @@ class Gemma4VocalCordSurgeon:
             target_layers=subspace.target_layers,
             layer_weights=subspace.layer_weights,
         )
+        from limbic_zero.vocal_cord.tpu_quantizer import resolve_model_input_device
+
         self.layers = resolve_decoder_layers(model)
-        self.device = next(model.parameters()).device
+        self.device = resolve_model_input_device(model)
         self.gen_lock = threading.RLock()
         self.cortical_surgeon = cortical_surgeon
         self.tpu_generator = tpu_generator
-        self.is_tpu_spmd: bool = bool(tpu_generator is not None or self.device.type == "xla")
+        is_4bit_hybrid = bool(getattr(model, "_limbic_tpu_4bit_hybrid", False))
+        self.is_tpu_spmd: bool = bool(
+            tpu_generator is not None or (self.device.type == "xla" and not is_4bit_hybrid)
+        )
 
         # Pre-stage unit subspace tensors & embodiment carrier on the target accelerator in float32
         self._gpu_unit_dirs: Dict[int, torch.Tensor] = {
@@ -1341,11 +1346,12 @@ class Gemma4VocalCordSurgeon:
                         ramp = torch.linspace(
                             0.55, 1.0, steps=tail, device=h.device, dtype=torch.float32
                         ).view(1, tail, 1)
-                        delta_f32 = (frac * weight_l) * ramp * tok_norms * p_dir.view(1, 1, -1)
+                        p_vec = p_dir.to(h.device) if p_dir.device != h.device else p_dir
+                        delta_f32 = (frac * weight_l) * ramp * tok_norms * p_vec.view(1, 1, -1)
                         h_mod[:, -tail:, :] = (seg + delta_f32).to(h.dtype)
 
-                        res_n = float(tok_norms[0, -1, 0].item())
-                        del_n = float(torch.linalg.vector_norm(delta_f32[0, -1, :]).item())
+                        res_n = float(tok_norms[0, -1, 0].detach().cpu().item())
+                        del_n = float(torch.linalg.vector_norm(delta_f32[0, -1, :]).detach().cpu().item())
                         telemetry_out[layer_id] = LayerInjectionTelemetry(
                             layer_idx=layer_id,
                             layer_weight=weight_l,
@@ -1368,7 +1374,8 @@ class Gemma4VocalCordSurgeon:
 
                         seg = h.float()
                         tok_norms = torch.linalg.vector_norm(seg, dim=-1, keepdim=True)
-                        delta_f32 = (frac * weight_l * decay) * tok_norms * v_dir.view(1, 1, -1)
+                        v_vec = v_dir.to(h.device) if v_dir.device != h.device else v_dir
+                        delta_f32 = (frac * weight_l * decay) * tok_norms * v_vec.view(1, 1, -1)
                         h_mod = (seg + delta_f32).to(h.dtype)
 
                     if is_tuple:

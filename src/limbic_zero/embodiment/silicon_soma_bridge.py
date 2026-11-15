@@ -327,47 +327,62 @@ class SiliconProprioceptiveBridge:
 
     @staticmethod
     def _poll_tpu_xla_sensors() -> Optional[Dict[str, Any]]:
-        """Query real Google TPU HBM & chip count from PyTorch/XLA PJRT runtime when present."""
+        """Query real Google TPU HBM & chip count from PyTorch/XLA or Colab torch_tpu when present."""
         try:
             from limbic_zero.tpu.xla_spmd_cortex import is_tpu_xla_available
 
-            if not is_tpu_xla_available():
-                return None
+            if is_tpu_xla_available():
+                import torch_xla.core.xla_model as xm  # type: ignore[import-not-found]
+                import torch_xla.runtime as xr  # type: ignore[import-not-found]
 
-            import torch_xla.core.xla_model as xm  # type: ignore[import-not-found]
-            import torch_xla.runtime as xr  # type: ignore[import-not-found]
+                n_chips = max(1, int(xr.global_runtime_device_count()))
+                dev = xm.xla_device()
+                mem = xm.get_memory_info(dev) or {}
+                bytes_used = int(mem.get("bytes_used", 0) or 0)
+                bytes_limit = int(mem.get("bytes_limit", 0) or 0)
 
-            n_chips = max(1, int(xr.global_runtime_device_count()))
-            dev = xm.xla_device()
-            mem = xm.get_memory_info(dev) or {}
-            bytes_used = int(mem.get("bytes_used", 0) or 0)
-            bytes_limit = int(mem.get("bytes_limit", 0) or 0)
+                if n_chips > 1 and 0 < bytes_limit < (36 * (1024 ** 3)):
+                    agg_used_mb = round((bytes_used * n_chips) / (1024 ** 2), 1)
+                    agg_total_mb = round((bytes_limit * n_chips) / (1024 ** 2), 1)
+                else:
+                    agg_used_mb = round(bytes_used / (1024 ** 2), 1)
+                    agg_total_mb = round(bytes_limit / (1024 ** 2), 1)
 
-            # PJRT `get_memory_info(dev)` reports per-chip HBM (~16 GiB on TPU v5e); scale across symmetric GSPMD mesh
-            if n_chips > 1 and 0 < bytes_limit < (36 * (1024 ** 3)):
-                agg_used_mb = round((bytes_used * n_chips) / (1024 ** 2), 1)
-                agg_total_mb = round((bytes_limit * n_chips) / (1024 ** 2), 1)
-            else:
-                agg_used_mb = round(bytes_used / (1024 ** 2), 1)
-                agg_total_mb = round(bytes_limit / (1024 ** 2), 1)
+                accel_env = os.environ.get("TPU_ACCELERATOR_TYPE", "").strip()
+                if accel_env:
+                    tpu_label = f"Google-TPU-{accel_env}"
+                elif n_chips == 8:
+                    tpu_label = "Google-TPU-v5e-8"
+                elif n_chips == 1:
+                    tpu_label = "Google-TPU-v5e-1"
+                else:
+                    tpu_label = f"Google-TPU-XLA-{n_chips}x"
 
-            accel_env = os.environ.get("TPU_ACCELERATOR_TYPE", "").strip()
-            if accel_env:
-                tpu_label = f"Google-TPU-{accel_env}"
-            elif n_chips == 8:
-                tpu_label = "Google-TPU-v5e-8"
-            else:
-                tpu_label = f"Google-TPU-XLA-{n_chips}x"
-
-            return {
-                "gpu_available": True,
-                "gpu_name": tpu_label,
-                "vram_used_mb": agg_used_mb,
-                "vram_total_mb": agg_total_mb,
-                "sensor_source": "linux_proc+torch_xla_tpu",
-            }
+                return {
+                    "gpu_available": True,
+                    "gpu_name": tpu_label,
+                    "vram_used_mb": agg_used_mb,
+                    "vram_total_mb": agg_total_mb,
+                    "sensor_source": "linux_proc+torch_xla_tpu",
+                }
         except Exception:
-            return None
+            pass
+
+        try:
+            from limbic_zero.vocal_cord.tpu_quantizer import detect_tpu_device
+
+            tpu_info = detect_tpu_device()
+            if tpu_info.available:
+                return {
+                    "gpu_available": True,
+                    "gpu_name": tpu_info.device_name,
+                    "vram_used_mb": tpu_info.hbm_used_mb,
+                    "vram_total_mb": tpu_info.hbm_total_mb,
+                    "sensor_source": f"linux_proc+{tpu_info.backend}",
+                }
+        except Exception:
+            pass
+        return None
 
     def sample_hardware(self) -> ContainerHardwareSnapshot:
         """Read current real container & silicon metrics with zero fabricated values."""
