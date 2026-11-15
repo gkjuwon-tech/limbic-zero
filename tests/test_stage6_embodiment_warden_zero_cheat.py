@@ -643,12 +643,11 @@ def test_10_mobile_responsive_layout_and_round1_thought_closure(tmp_path: Path) 
     repo_root = Path(__file__).resolve().parents[1]
     chat_html = (repo_root / "src" / "limbic_zero" / "vocal_cord" / "static" / "chat.html").read_text(encoding="utf-8")
 
-    # Mobile responsive anti-cutoff invariants
-    assert "minmax(0, 1fr) 352px" in chat_html
+    # Mobile responsive anti-cutoff invariants for pure 1:1 single-column UI
     assert "grid-template-columns: minmax(0, 1fr);" in chat_html
     assert "@media (max-width: 760px)" in chat_html
     assert "overflow-wrap: anywhere" in chat_html
-    assert '<option value="768" selected>' in chat_html
+    assert "env(safe-area-inset-bottom" in chat_html
 
     # Zero emoji invariant preserved in UI HTML
     for ch in chat_html:

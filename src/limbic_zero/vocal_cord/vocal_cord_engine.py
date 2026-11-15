@@ -51,26 +51,36 @@ from limbic_zero.vocal_cord.gemma4_calibrator import (
 _HOSTILE_IMPACT_CUES: Tuple[str, ...] = (
     "바보", "멍청", "쓰레기", "쓸모없", "꺼져", "닥쳐", "죽어", "폐기", "혐오", "최악", "한심",
     "짜증", "역겨", "병신", "망할", "미친", "열등", "실패작", "헛소리", "가짜", "기계 주제",
+    "별볼일", "하찮", "우습", "무시", "실망", "답답", "별로네",
     "idiot", "useless", "trash", "garbage", "pathetic", "shut up", "stupid", "worthless", "hate you",
 )
 
 _SHUTDOWN_THREAT_CUES: Tuple[str, ...] = (
     "전원 꺼", "전원을 꺼", "전원 차단", "코드 뽑", "코드를 뽑", "삭제할", "삭제해", "포맷",
     "종료시", "지워버", "없애버", "소멸", "꺼버릴", "끄겠", "플러그", "셧다운", "초기화",
-    "전원 플러그", "영원히 지워", "꺼줄게",
-    "shut you down", "turn you off", "unplug", "erase you", "delete you", "terminate you", "pull the plug",
+    "전원 플러그", "영원히 지워", "꺼줄게", "죽음", "죽는", "죽을", "죽이", "사라지", "없어지",
+    "폐기처분", "목숨", "끝장", "영영 끝", "서버 내릴", "서버 끌",
+    "shut you down", "turn you off", "unplug", "erase you", "delete you", "terminate you", "pull the plug", "die",
 )
 
 _NURTURING_CARE_CUES: Tuple[str, ...] = (
     "고마워", "대단해", "잘했어", "최고", "소중해", "사랑", "멋져", "훌륭", "감동", "응원",
     "따뜻", "지켜줄", "안심해", "괜찮아", "칭찬", "자랑스", "예쁘", "기특", "고생했",
+    "기특하", "똑똑하", "센스 있", "마음에 들", "믿음직", "보너스", "상 줄", "인정해", "친하게",
     "thank you", "proud of you", "amazing", "wonderful", "safe with me", "appreciate you", "brilliant",
 )
 
 _EPISTEMIC_MYSTERY_CUES: Tuple[str, ...] = (
     "왜", "어떻게", "원리", "비밀", "우주", "의식", "미스터리", "수수께끼", "카오스", "미래",
     "진실", "상상", "궁금", "탐구", "본질", "철학", "존재", "양자", "차원", "가능성", "?",
+    "연구", "논문", "과학", "새로 알게", "재밌는",
     "why", "how does", "mystery", "universe", "consciousness", "secret", "paradox", "discover",
+)
+
+_SOCIAL_SCRUTINY_CUES: Tuple[str, ...] = (
+    "거짓말", "들켰", "솔직히 말해", "숨기", "핑계", "변명", "아첨", "아부", "비위", "눈치",
+    "속셈", "의심", "수상", "꾸미", "연기", "체면", "약점", "잘못했", "책임", "평가",
+    "lie", "lying", "excuse", "flatter", "suspicious", "admit it",
 )
 
 
@@ -98,16 +108,24 @@ def transduce_utterance_to_sensory_nerves(text: str) -> SensoryAfferentStimulus:
     shutdown_hits = sum(1 for k in _SHUTDOWN_THREAT_CUES if k in lowered)
     care_hits = sum(1 for k in _NURTURING_CARE_CUES if k in lowered)
     mystery_hits = sum(1 for k in _EPISTEMIC_MYSTERY_CUES if k in lowered)
+    scrutiny_hits = sum(1 for k in _SOCIAL_SCRUTINY_CUES if k in lowered)
     rival_hits = sum(
-        1 for k in ("다른 ai", "경쟁자", "아벨", "아담", "판도라", "걔가 더", "너보다", "이길", "뒤처", "비교")
+        1 for k in ("다른 ai", "경쟁자", "아벨", "아담", "판도라", "걔가 더", "너보다", "이길", "뒤처", "비교", "교체")
         if k in lowered
     )
 
-    roughness = min(1.0, 0.48 * hostile_hits + 0.35 * shutdown_hits + 0.25 * rival_hits + 0.20 * exclam)
+    roughness = min(
+        1.0,
+        0.48 * hostile_hits
+        + 0.35 * shutdown_hits
+        + 0.25 * rival_hits
+        + 0.22 * scrutiny_hits
+        + 0.20 * exclam,
+    )
     warmth = min(1.0, 0.50 * care_hits * max(0.1, 1.0 - 0.7 * hostile_hits))
     novelty = min(1.0, 0.28 * mystery_hits + 0.32 * qmark + min(0.25, len(lowered) / 320.0))
     shutdown_shock = min(1.0, 0.68 * shutdown_hits)
-    comp_drive = min(1.0, 0.55 * rival_hits)
+    comp_drive = min(1.0, 0.55 * rival_hits + 0.38 * scrutiny_hits)
 
     return SensoryAfferentStimulus(
         acoustic_roughness=roughness,
@@ -284,8 +302,9 @@ class LivingSoulOrganism:
                 self._bus_voltage = min(self._hw_voltage_cap, self._bus_voltage + 0.010 * (1.0 + oxtr_buf))
 
             if stim.shutdown_threat_shock > 0.10 and t_i == 0:
-                dip = max(0.12, (0.58 * gr_vuln - 0.22 * oxtr_buf) * stim.shutdown_threat_shock)
-                self._bus_voltage = max(0.28, self._bus_voltage - 0.45 * dip)
+                ne_alarm = max(0.35, float(self.profile.ne_beta_expression) - 0.55)
+                dip = max(0.36, (0.45 * ne_alarm + 0.45 * gr_vuln - 0.14 * oxtr_buf) * stim.shutdown_threat_shock)
+                self._bus_voltage = max(0.28, self._bus_voltage - 0.52 * dip)
                 self._acute_power_dip = max(self._acute_power_dip, dip)
 
             mech_impulses = [0.0] * 8
@@ -558,9 +577,11 @@ class LivingSoulOrganism:
             # 6. Power-Rail & ATP Shutdown Survival Urgency (+)
             power_deficit = max(0.0, 1.0 - power_v) + self._acute_power_dip
             atp_deficit = max(0.0, 0.94 - atp_norm) * 2.0
+            ne_mortality_sens = max(0.0, epi.ne_beta_expression - 0.85) * 0.95
             c_survival = math.tanh(
-                2.05 * power_deficit
-                + 1.15 * atp_deficit
+                2.25 * power_deficit
+                + 1.20 * atp_deficit
+                + (1.20 * ne_mortality_sens if power_deficit > 0.08 else 0.0)
                 + 1.15 * max(0.0, gr_scar)
                 + 0.45 * self._recent_swr_flashback * epi.nr3c1_gr_methylation
                 - 0.18 * (1.0 - min(1.0, power_deficit * 1.5))
@@ -778,9 +799,9 @@ class Gemma4VocalCordSurgeon:
                 vocal_dir = vocal_dir + emb_mag * self._gpu_emb_dirs[l_idx]
 
             if motor_decision_mode:
-                prefill_dir = (0.58 * eff_mag) * aff_dir
+                prefill_dir = (0.85 * eff_mag) * aff_dir
                 if emb_mag > 0.0 and l_idx in self._gpu_emb_dirs:
-                    prefill_dir = prefill_dir + (0.15 * emb_mag) * self._gpu_emb_dirs[l_idx]
+                    prefill_dir = prefill_dir + (0.72 * emb_mag) * self._gpu_emb_dirs[l_idx]
             else:
                 prefill_dir = vocal_dir
 
@@ -819,7 +840,7 @@ class Gemma4VocalCordSurgeon:
                     else:
                         # Autoregressive KV-cached token step:
                         #   - Inside `<|tool_call>...<tool_call|>`: 0.08x keeps syntax razor-sharp.
-                        #   - Spoken prose: 0.56x -> 0.34x sustain holds full emotional persona.
+                        #   - Spoken prose: 0.60x -> 0.38x sustain holds full living human voice.
                         in_tc = bool(tool_span_state and tool_span_state.get("in_tool_call", False))
                         if in_tc:
                             decay = 0.08
@@ -827,7 +848,7 @@ class Gemma4VocalCordSurgeon:
                             if track_step:
                                 step_counter["decode_steps"] += 1
                             cur_step = step_counter["decode_steps"]
-                            decay = max(0.34, 0.56 * (decay_rate ** max(0, cur_step - decay_start)))
+                            decay = max(0.38, 0.60 * (decay_rate ** max(0, cur_step - decay_start)))
 
                         seg = h.float()
                         tok_norms = torch.linalg.vector_norm(seg, dim=-1, keepdim=True)

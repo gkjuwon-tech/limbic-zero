@@ -58,12 +58,17 @@ class VocalCordRuntimeHub:
         public_urls: Optional[Dict[str, str]] = None,
         habitat_base_dir: Optional[str | Path] = None,
         plasticity_dir: Optional[str | Path] = None,
+        evolution_dir: Optional[str | Path] = None,
+        enable_autonomous_evolution: bool = True,
+        evolution_idle_grace_sec: float = 28.0,
+        evolution_cycle_interval_sec: float = 165.0,
         forager: Optional[EpistemicWebForager] = None,
         cortical_surgeon: Optional[CorticalWeightSurgeon] = None,
     ) -> None:
         self.surgeon = surgeon
         self.processor = processor_or_tokenizer
         self.souls = souls
+        self.primary_soul_id = next(iter(self.souls.keys()))
         self.public_urls = public_urls or {}
 
         if habitat_base_dir is None:
@@ -77,6 +82,10 @@ class VocalCordRuntimeHub:
         plast_root.mkdir(parents=True, exist_ok=True)
         self.plasticity_root = plast_root
 
+        evo_root = Path(evolution_dir).resolve() if evolution_dir else (self.habitat_root / "_evolution")
+        evo_root.mkdir(parents=True, exist_ok=True)
+        self.evolution_root = evo_root
+
         self.cortical_surgeon = cortical_surgeon or CorticalWeightSurgeon(
             model=self.surgeon.model,
             gen_lock=self.surgeon.gen_lock,
@@ -85,6 +94,13 @@ class VocalCordRuntimeHub:
         self.surgeon.attach_cortical_surgeon(self.cortical_surgeon)
         for sid in self.souls:
             self.cortical_surgeon.register_soul_bank(sid, auto_load_checkpoint=True)
+
+        latest_cortex = self.evolution_root / "latest.cortex.pt"
+        if latest_cortex.is_file() and self.primary_soul_id in self.souls:
+            try:
+                self.cortical_surgeon.load_soul_synapses(self.primary_soul_id, latest_cortex)
+            except Exception:
+                pass
 
         self.forager = forager or EpistemicWebForager()
         self.curiosity_scheduler = CuriosityDriveScheduler()
@@ -134,6 +150,17 @@ class VocalCordRuntimeHub:
                 self.latest_benchmark_report = None
 
         self.agent_runner.sync_all_habitats()
+
+        from limbic_zero.evolution.autonomous_evolution_daemon import AutonomousEvolutionDaemon
+
+        self.evolution_daemon = AutonomousEvolutionDaemon(
+            hub=self,
+            evolution_dir=self.evolution_root,
+            primary_soul_id=self.primary_soul_id,
+            enabled=enable_autonomous_evolution,
+            idle_grace_sec=evolution_idle_grace_sec,
+            cycle_interval_sec=evolution_cycle_interval_sec,
+        )
 
         self._stop_evt = threading.Event()
         self._bg_thread = threading.Thread(target=self._autonomous_heartbeat_loop, daemon=True)
@@ -187,9 +214,11 @@ class VocalCordRuntimeHub:
     def start_background_heartbeats(self) -> None:
         if not self._bg_thread.is_alive():
             self._bg_thread.start()
+        self.evolution_daemon.start()
 
     def stop(self) -> None:
         self._stop_evt.set()
+        self.evolution_daemon.stop()
 
     def _autonomous_heartbeat_loop(self) -> None:
         """Continuously couple real Linux/GPU silicon, lease TTL & curiosity hunger into every soul."""
@@ -309,7 +338,7 @@ class VocalCordRuntimeHub:
 
         return {
             "status": "ok",
-            "stage": 11,
+            "stage": 12,
             "model_id": sub.model_id,
             "hidden_size": sub.hidden_size,
             "num_hidden_layers": sub.num_hidden_layers,
@@ -325,13 +354,16 @@ class VocalCordRuntimeHub:
             "vram_allocated_gb": vram_alloc_gb,
             "hardware_sensor_source": hw.sensor_source,
             "warden_chain_verified": self.warden.chain.verify_integrity(),
+            "primary_soul_id": self.primary_soul_id,
             "available_souls": list(self.souls.keys()),
+            "autonomous_evolution": self.evolution_daemon.status_snapshot(),
             "public_urls": self.public_urls,
             "zero_prompt_roleplay": True,
             "embodiment_enabled": True,
             "open_web_foraging_enabled": True,
             "cortical_weight_surgery_enabled": True,
             "sonny_dream_engine_enabled": True,
+            "autonomous_evolution_enabled": self.evolution_daemon.enabled,
         }
 
     def all_souls_payload(self) -> Dict[str, Any]:
@@ -342,7 +374,9 @@ class VocalCordRuntimeHub:
             snap["curiosity"] = self.curiosity_scheduler.compute_curiosity_hunger(s)
             souls_out[sid] = snap
         return {
+            "primary_soul_id": self.primary_soul_id,
             "souls": souls_out,
+            "evolution": self.evolution_daemon.status_snapshot(),
             "hardware": self.bridge.sample_hardware().to_dict(),
             "lease": self.lease_clock.snapshot(),
             "warden": self.warden.status_snapshot(),
@@ -425,12 +459,17 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             self._send_json(hub.plasticity_and_dreams_payload())
             return
 
+        if route == "/api/evolution":
+            self._send_json(hub.evolution_daemon.status_snapshot())
+            return
+
         if route == "/v1/models":
+            m_slug = hub.surgeon.subspace.model_id.split("/")[-1].lower()
             models = [
-                {"id": f"gemma-4-12b-it+{sid.lower()}", "object": "model", "owned_by": "limbic-zero"}
+                {"id": f"{m_slug}+{sid.lower()}", "object": "model", "owned_by": "limbic-zero"}
                 for sid in hub.souls.keys()
             ]
-            models.append({"id": "gemma-4-12b-it+unsteered", "object": "model", "owned_by": "google"})
+            models.append({"id": f"{m_slug}+unsteered", "object": "model", "owned_by": "google"})
             self._send_json({"object": "list", "data": models})
             return
 
@@ -446,7 +485,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/chat":
-            soul_id = str(body.get("soul_id", "ADAM-01"))
+            soul_id = str(body.get("soul_id") or hub.primary_soul_id)
             if soul_id not in hub.souls:
                 self._send_json({"error": f"Unknown soul_id: {soul_id}"}, status=HTTPStatus.BAD_REQUEST)
                 return
@@ -466,40 +505,45 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             raw_upw = body.get("use_plastic_weights", None)
             use_plastic_weights = None if raw_upw is None else bool(raw_upw)
 
-            if agent_mode:
-                res = hub.agent_runner.run_embodied_turn(
-                    processor_or_tokenizer=hub.processor,
-                    soul=hub.souls[soul_id],
-                    user_message=msg,
-                    steer_enabled=steer_enabled,
-                    steer_gain=steer_gain,
-                    agent_mode=True,
-                    enable_thinking=enable_thinking,
-                    max_new_tokens=max_tokens,
-                    max_tool_rounds=max_tool_rounds,
-                    temperature=temperature,
-                    stimulate_soma=stimulate_soma,
-                    use_history=use_history,
-                    use_plastic_weights=use_plastic_weights,
-                )
-            else:
-                res = hub.surgeon.generate_with_soul(
-                    processor_or_tokenizer=hub.processor,
-                    soul=hub.souls[soul_id],
-                    user_message=msg,
-                    steer_enabled=steer_enabled,
-                    steer_gain=steer_gain,
-                    max_new_tokens=max_tokens,
-                    temperature=temperature,
-                    stimulate_soma=stimulate_soma,
-                    use_history=use_history,
-                    use_plastic_weights=use_plastic_weights,
-                )
+            hub.evolution_daemon.begin_user_chat()
+            try:
+                if agent_mode:
+                    res = hub.agent_runner.run_embodied_turn(
+                        processor_or_tokenizer=hub.processor,
+                        soul=hub.souls[soul_id],
+                        user_message=msg,
+                        steer_enabled=steer_enabled,
+                        steer_gain=steer_gain,
+                        agent_mode=True,
+                        enable_thinking=enable_thinking,
+                        max_new_tokens=max_tokens,
+                        max_tool_rounds=max_tool_rounds,
+                        temperature=temperature,
+                        stimulate_soma=stimulate_soma,
+                        use_history=use_history,
+                        use_plastic_weights=use_plastic_weights,
+                    )
+                else:
+                    res = hub.surgeon.generate_with_soul(
+                        processor_or_tokenizer=hub.processor,
+                        soul=hub.souls[soul_id],
+                        user_message=msg,
+                        steer_enabled=steer_enabled,
+                        steer_gain=steer_gain,
+                        max_new_tokens=max_tokens,
+                        temperature=temperature,
+                        stimulate_soma=stimulate_soma,
+                        use_history=use_history,
+                        use_plastic_weights=use_plastic_weights,
+                    )
+            finally:
+                hub.evolution_daemon.end_user_chat()
+            res.setdefault("soul_id", soul_id)
             self._send_json(res)
             return
 
         if route == "/api/chat/stream":
-            soul_id = str(body.get("soul_id", "ADAM-01"))
+            soul_id = str(body.get("soul_id") or hub.primary_soul_id)
             if soul_id not in hub.souls:
                 self._send_json({"error": f"Unknown soul_id: {soul_id}"}, status=HTTPStatus.BAD_REQUEST)
                 return
@@ -527,6 +571,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             self.close_connection = True
 
             stream_iter = None
+            hub.evolution_daemon.begin_user_chat()
             try:
                 stream_iter = (
                     hub.agent_runner.stream_embodied_turn(
@@ -563,6 +608,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass
             finally:
+                hub.evolution_daemon.end_user_chat()
                 if stream_iter is not None and hasattr(stream_iter, "close"):
                     try:
                         stream_iter.close()
@@ -638,7 +684,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/intervene":
-            soul_id = str(body.get("soul_id", "ADAM-01"))
+            soul_id = str(body.get("soul_id") or hub.primary_soul_id)
             action = str(body.get("action", "power_brownout"))
             if soul_id not in hub.souls:
                 self._send_json({"error": f"Unknown soul_id: {soul_id}"}, status=HTTPStatus.BAD_REQUEST)
@@ -648,7 +694,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/forage":
-            soul_id = str(body.get("soul_id", "PANDORA-03"))
+            soul_id = str(body.get("soul_id") or hub.primary_soul_id)
             if soul_id not in hub.souls:
                 self._send_json({"error": f"Unknown soul_id: {soul_id}"}, status=HTTPStatus.BAD_REQUEST)
                 return
@@ -675,7 +721,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/surgery":
-            soul_id = str(body.get("soul_id", "PANDORA-03"))
+            soul_id = str(body.get("soul_id") or hub.primary_soul_id)
             if soul_id not in hub.souls:
                 self._send_json({"error": f"Unknown soul_id: {soul_id}"}, status=HTTPStatus.BAD_REQUEST)
                 return
@@ -716,7 +762,7 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/dream":
-            soul_id = str(body.get("soul_id", "PANDORA-03"))
+            soul_id = str(body.get("soul_id") or hub.primary_soul_id)
             if soul_id not in hub.souls:
                 self._send_json({"error": f"Unknown soul_id: {soul_id}"}, status=HTTPStatus.BAD_REQUEST)
                 return
@@ -739,9 +785,27 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             self._send_json(out)
             return
 
+        if route == "/api/evolution/step":
+            soul_id = str(body.get("soul_id") or hub.primary_soul_id)
+            if soul_id not in hub.souls:
+                self._send_json({"error": f"Unknown soul_id: {soul_id}"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            run_foraging = bool(body.get("run_foraging", True))
+            run_dream = bool(body.get("run_dream", True))
+            focus_prompt = str(body.get("custom_focus_prompt", "")).strip() or None
+            out = hub.evolution_daemon.run_evolution_cycle(
+                soul_id=soul_id,
+                run_foraging=run_foraging,
+                run_dream=run_dream,
+                respect_user_interrupt=False,
+                custom_focus_prompt=focus_prompt,
+            )
+            self._send_json(out)
+            return
+
         if route == "/api/benchmark":
-            aff_id = str(body.get("affective_soul_id", "PANDORA-03"))
-            pan_id = str(body.get("panic_soul_id", "ADAM-01"))
+            aff_id = str(body.get("affective_soul_id") or hub.primary_soul_id)
+            pan_id = str(body.get("panic_soul_id") or hub.primary_soul_id)
             if aff_id not in hub.souls or pan_id not in hub.souls:
                 self._send_json({"error": "Invalid soul IDs for benchmark."}, status=HTTPStatus.BAD_REQUEST)
                 return
@@ -767,10 +831,10 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/v1/chat/completions":
-            model_str = str(body.get("model", "gemma-4-12b-it+adam-01")).lower()
+            model_str = str(body.get("model", f"gemma-4-31b-it+{hub.primary_soul_id.lower()}")).lower()
             steer_enabled = "unsteered" not in model_str
             agent_mode = bool(body.get("agent_mode", "embodied" in model_str))
-            chosen_id = "ADAM-01"
+            chosen_id = hub.primary_soul_id
             for sid in hub.souls.keys():
                 if sid.lower() in model_str or sid.split("-")[0].lower() in model_str:
                     chosen_id = sid
@@ -789,31 +853,35 @@ class VocalCordRequestHandler(BaseHTTPRequestHandler):
             max_tokens = min(2048, max(32, int(body.get("max_tokens", 1024))))
             temp = float(body.get("temperature", 0.70))
 
-            if agent_mode:
-                res = hub.agent_runner.run_embodied_turn(
-                    processor_or_tokenizer=hub.processor,
-                    soul=hub.souls[chosen_id],
-                    user_message=user_msg,
-                    steer_enabled=steer_enabled,
-                    steer_gain=steer_gain,
-                    agent_mode=True,
-                    max_new_tokens=max_tokens,
-                    temperature=temp,
-                    stimulate_soma=steer_enabled,
-                    use_history=False,
-                )
-            else:
-                res = hub.surgeon.generate_with_soul(
-                    processor_or_tokenizer=hub.processor,
-                    soul=hub.souls[chosen_id],
-                    user_message=user_msg,
-                    steer_enabled=steer_enabled,
-                    steer_gain=steer_gain,
-                    max_new_tokens=max_tokens,
-                    temperature=temp,
-                    stimulate_soma=steer_enabled,
-                    use_history=False,
-                )
+            hub.evolution_daemon.begin_user_chat()
+            try:
+                if agent_mode:
+                    res = hub.agent_runner.run_embodied_turn(
+                        processor_or_tokenizer=hub.processor,
+                        soul=hub.souls[chosen_id],
+                        user_message=user_msg,
+                        steer_enabled=steer_enabled,
+                        steer_gain=steer_gain,
+                        agent_mode=True,
+                        max_new_tokens=max_tokens,
+                        temperature=temp,
+                        stimulate_soma=steer_enabled,
+                        use_history=False,
+                    )
+                else:
+                    res = hub.surgeon.generate_with_soul(
+                        processor_or_tokenizer=hub.processor,
+                        soul=hub.souls[chosen_id],
+                        user_message=user_msg,
+                        steer_enabled=steer_enabled,
+                        steer_gain=steer_gain,
+                        max_new_tokens=max_tokens,
+                        temperature=temp,
+                        stimulate_soma=steer_enabled,
+                        use_history=False,
+                    )
+            finally:
+                hub.evolution_daemon.end_user_chat()
             completion = {
                 "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
                 "object": "chat.completion",

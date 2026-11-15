@@ -981,13 +981,12 @@ def test_21_live_http_server_stage11_endpoints_plasticity_forage_surgery_dream_b
         return json.loads(opener.open(req, timeout=15).read().decode("utf-8"))
 
     try:
-        # 1. Health & UI HTML
+        # 1. Health & UI HTML (Stage 12 pure 1:1 chat UI; foraging/dreaming run autonomously in backend)
         health = json.loads(opener.open(f"http://127.0.0.1:{port}/api/health", timeout=5).read().decode("utf-8"))
-        assert health["stage"] == 11
+        assert health["stage"] >= 11
         assert health["cortical_weight_surgery_enabled"] is True
         html_page = opener.open(f"http://127.0.0.1:{port}/", timeout=5).read().decode("utf-8")
-        assert "runAutonomousForaging" in html_page
-        assert "runSonnyDream" in html_page
+        assert "/api/chat/stream" in html_page
 
         # 2. Manual cortical weight surgery
         surg_out = _post(
@@ -1110,10 +1109,10 @@ def test_24_subspace_v5_embodiment_directions_and_thought_leak_guard(tmp_path: P
     cfg = Gemma4SteeringConfig(model_id="compact/gemma4", target_layers=(1, 3, 5), layer_weights=(0.3, 0.4, 0.3))
     subspace = ContrastiveSubspaceExtractor(config=cfg).extract_and_calibrate(model, encode_fn=proc.encode_text)
 
-    save_p = tmp_path / "subspace_v5.pt"
+    save_p = tmp_path / "subspace_v6.pt"
     subspace.save(save_p)
     reloaded = CalibratedSubspaceBundle.load(save_p)
-    assert reloaded.format_version == "limbic0.gemma4_subspace.v5"
+    assert reloaded.format_version == "limbic0.gemma4_subspace.v6"
     assert sorted(reloaded.embodiment_directions.keys()) == [1, 3, 5]
 
     parser = Gemma4IncrementalStreamParser(starts_in_thought=False)

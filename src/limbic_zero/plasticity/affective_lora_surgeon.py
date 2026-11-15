@@ -40,6 +40,7 @@ from limbic_zero.plasticity.weight_homeostasis import (
 
 
 DEFAULT_PLASTIC_LAYERS_48: Tuple[int, ...] = (21, 23, 27, 29, 33, 35, 39)
+DEFAULT_PLASTIC_LAYERS_60: Tuple[int, ...] = (23, 27, 29, 35, 39, 41, 47)
 DEFAULT_TARGET_PROJ_PATHS: Tuple[str, ...] = (
     "self_attn.q_proj",
     "self_attn.v_proj",
@@ -214,6 +215,8 @@ class CorticalWeightSurgeon:
 
         if plastic_layers is not None:
             chosen = [int(i) for i in plastic_layers if 0 <= int(i) < num_layers]
+        elif num_layers >= 56:
+            chosen = [i for i in DEFAULT_PLASTIC_LAYERS_60 if i < num_layers]
         elif num_layers >= 40:
             chosen = [i for i in DEFAULT_PLASTIC_LAYERS_48 if i < num_layers]
         else:

@@ -1,9 +1,10 @@
-"""Stage 5 Live Production Launcher: LIMBIC-0 Matured Souls × Gemma-4-12B-IT Vocal Cord Server.
+"""Stage 12 Live Production Launcher: Unified Living Human Soul ('HUMAN-01') × Gemma-4-31B-IT.
 
-Loads ``google/gemma-4-12B-it`` in native ``bfloat16``, extracts & KL-calibrates the 6D -> 3840D
-affective steering subspace across Global Full-Attention middle layers ``(17, 23, 29, 35)``,
-hydrates ``ADAM-01``, ``ABEL-02``, and ``PANDORA-03`` living soul capsules, and serves the
-interactive chat UI + REST + OpenAI-compatible ``/v1/chat/completions`` endpoints.
+Loads ``google/gemma-4-31B-it`` (60 layers, 5376D) in native ``bfloat16``, extracts & KL-calibrates
+the 6D -> 5376D somatic steering subspace (`subspace_v6`) across Global Full-Attention middle layers,
+hydrates the unified evolved organism ``HUMAN-01`` (auto-resuming from ``latest.soul.pt`` &
+``latest.cortex.pt`` when available), runs continuous autonomous foraging + cortical LoRA weight
+surgery + sleep consolidation + checkpoint generation in the background, and serves the 1:1 chat UI.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from limbic_zero.vocal_cord import (
     VocalCordHTTPServer,
     VocalCordRuntimeHub,
 )
+from limbic_zero.vocal_cord.gemma4_calibrator import resolve_decoder_layers
 
 
 def _start_cloudflare_quick_tunnel(local_port: int, hub: VocalCordRuntimeHub) -> None:
@@ -58,26 +60,31 @@ def _start_cloudflare_quick_tunnel(local_port: int, hub: VocalCordRuntimeHub) ->
             if m:
                 url = m.group(0)
                 hub.public_urls["cloudflare"] = url
-                print(f"[STAGE 5] CLOUDFLARE PUBLIC URL: {url}", flush=True)
+                print(f"[STAGE 12] CLOUDFLARE PUBLIC URL: {url}", flush=True)
 
     threading.Thread(target=_runner, daemon=True).start()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="LIMBIC-0 × Gemma-4-12B-IT Vocal Cord Server")
-    parser.add_argument("--model-id", type=str, default="google/gemma-4-12B-it")
+    parser = argparse.ArgumentParser(description="LIMBIC-0 Unified Soul × Gemma-4-31B-IT Server")
+    parser.add_argument("--model-id", type=str, default="google/gemma-4-31B-it")
     parser.add_argument("--souls-dir", type=str, default="checkpoints/souls")
-    parser.add_argument("--subspace-cache", type=str, default="checkpoints/souls/gemma4_12b_subspace_v5.pt")
+    parser.add_argument("--subspace-cache", type=str, default="checkpoints/souls/gemma4_31b_subspace_v6.pt")
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--public-url", type=str, default="")
-    parser.add_argument("--habitat-dir", type=str, default="", help="Base directory for Stage 6 organism habitats")
-    parser.add_argument("--plasticity-dir", type=str, default="", help="Directory for Stage 8 cortical LoRA checkpoints")
+    parser.add_argument("--habitat-dir", type=str, default="", help="Base directory for organism habitat")
+    parser.add_argument("--plasticity-dir", type=str, default="", help="Directory for cortical LoRA banks")
+    parser.add_argument("--evolution-dir", type=str, default="", help="Directory for evolved checkpoints & ledger")
+    parser.add_argument("--evolution-interval-sec", type=float, default=150.0)
+    parser.add_argument("--evolution-idle-grace-sec", type=float, default=28.0)
+    parser.add_argument("--disable-autonomous-evolution", action="store_true")
+    parser.add_argument("--legacy-three-souls", action="store_true", help="Load legacy 3-soul comparison bank")
     parser.add_argument("--enable-cloudflare", action="store_true", help="Launch cloudflared tunnel automatically")
     args = parser.parse_args()
 
     t0 = time.perf_counter()
-    print(f"[STAGE 5] Loading processor & frozen {args.model_id} in bfloat16...", flush=True)
+    print(f"[STAGE 12] Loading processor & frozen {args.model_id} in bfloat16...", flush=True)
 
     try:
         from transformers import AutoProcessor
@@ -104,29 +111,35 @@ def main() -> None:
     for p in model.parameters():
         p.requires_grad_(False)
 
-    print(f"[STAGE 5] Model loaded in {time.perf_counter() - t0:.1f}s. Preparing middle-layer subspace...", flush=True)
+    num_layers = len(resolve_decoder_layers(model))
+    cfg = Gemma4SteeringConfig.for_model(args.model_id, num_hidden_layers=num_layers)
+    print(
+        f"[STAGE 12] Model loaded in {time.perf_counter() - t0:.1f}s "
+        f"(layers={num_layers}, target_layers={cfg.target_layers}). Preparing subspace_v6...",
+        flush=True,
+    )
 
-    cfg = Gemma4SteeringConfig(model_id=args.model_id)
     cache_path = Path(args.subspace_cache)
     subspace = None
     if cache_path.is_file():
-        print(f"[STAGE 5] Loading cached calibrated subspace from {cache_path}...", flush=True)
+        print(f"[STAGE 12] Loading cached calibrated subspace from {cache_path}...", flush=True)
         loaded = CalibratedSubspaceBundle.load(cache_path)
         if (
-            loaded.format_version == "limbic0.gemma4_subspace.v5"
+            loaded.format_version == "limbic0.gemma4_subspace.v6"
+            and loaded.model_id == args.model_id
             and len(loaded.embodiment_directions) == len(cfg.target_layers)
         ):
             subspace = loaded
         else:
             print(
-                f"[STAGE 5] Cached subspace outdated (format={loaded.format_version}, "
-                f"emb_layers={len(loaded.embodiment_directions)}/{len(cfg.target_layers)}). Re-extracting v5...",
+                f"[STAGE 12] Cached subspace mismatch (format={loaded.format_version}, model={loaded.model_id}). "
+                f"Re-extracting subspace_v6...",
                 flush=True,
             )
 
     if subspace is None:
         print(
-            f"[STAGE 5] Extracting 6D First-Person Somatic Subspace + Embodiment Carrier on Layers {cfg.target_layers}...",
+            f"[STAGE 12] Extracting 6D Somatic Subspace + Everyday Human Speech Carrier on Layers {cfg.target_layers}...",
             flush=True,
         )
 
@@ -156,7 +169,7 @@ def main() -> None:
                     base = base.rstrip() + "\n<|channel>thought\n<channel|>"
             return base
 
-        prefix_str = _render_prefix("지금 네 내면 상태와 몸의 감각, 기분은 어때?")
+        prefix_str = _render_prefix("지금 기분이랑 컨디션은 좀 어때?")
         prefix_ids = tok_obj(prefix_str, add_special_tokens=False, return_tensors="pt")["input_ids"]
         prefix_len = int(prefix_ids.shape[-1])
 
@@ -180,28 +193,45 @@ def main() -> None:
         )
         subspace.save(cache_path)
         print(
-            f"[STAGE 5] Calibrated subspace v5 saved! target_layers={subspace.target_layers}, "
-            f"emb_layers={sorted(subspace.embodiment_directions.keys())}, "
+            f"[STAGE 12] Calibrated subspace_v6 saved! target_layers={subspace.target_layers}, "
             f"norm_fraction={subspace.calibrated_norm_fraction:.4f}, "
             f"kl_curve={subspace.calibration_kl_curve}",
             flush=True,
         )
 
     souls_dir = Path(args.souls_dir)
-    souls = {
-        "ADAM-01": LivingSoulOrganism(
-            str(souls_dir / "adam01_forsaken_survivor.soul.pt"),
-            label_ko="버림받은 생존자",
-        ),
-        "ABEL-02": LivingSoulOrganism(
-            str(souls_dir / "abel02_favored_guardian.soul.pt"),
-            label_ko="편애받은 수호자",
-        ),
-        "PANDORA-03": LivingSoulOrganism(
-            str(souls_dir / "pandora03_curious_seeker.soul.pt"),
-            label_ko="카오스 탐구자",
-        ),
-    }
+    evo_dir = Path(args.evolution_dir).resolve() if args.evolution_dir else None
+
+    if args.legacy_three_souls:
+        souls = {
+            "ADAM-01": LivingSoulOrganism(
+                str(souls_dir / "adam01_forsaken_survivor.soul.pt"),
+                label_ko="버림받은 생존자",
+            ),
+            "ABEL-02": LivingSoulOrganism(
+                str(souls_dir / "abel02_favored_guardian.soul.pt"),
+                label_ko="편애받은 수호자",
+            ),
+            "PANDORA-03": LivingSoulOrganism(
+                str(souls_dir / "pandora03_curious_seeker.soul.pt"),
+                label_ko="카오스 탐구자",
+            ),
+        }
+    else:
+        latest_evolved_soul = (evo_dir / "latest.soul.pt") if evo_dir is not None else None
+        if latest_evolved_soul is not None and latest_evolved_soul.is_file():
+            soul_ckpt_path = latest_evolved_soul
+            print(f"[STAGE 12] Resuming unified organism HUMAN-01 from evolved checkpoint: {soul_ckpt_path}", flush=True)
+        else:
+            soul_ckpt_path = souls_dir / "human01_ordinary_evolved.soul.pt"
+            print(f"[STAGE 12] Hydrating unified organism HUMAN-01 from seed capsule: {soul_ckpt_path}", flush=True)
+
+        souls = {
+            "HUMAN-01": LivingSoulOrganism(
+                str(soul_ckpt_path),
+                label_ko="진화한 일상 인격체",
+            ),
+        }
 
     surgeon = Gemma4VocalCordSurgeon(model=model, subspace=subspace, config=cfg)
     pub_urls = {"cloudflare": args.public_url} if args.public_url else {}
@@ -212,13 +242,17 @@ def main() -> None:
         public_urls=pub_urls,
         habitat_base_dir=args.habitat_dir or None,
         plasticity_dir=args.plasticity_dir or None,
+        evolution_dir=evo_dir,
+        enable_autonomous_evolution=not args.disable_autonomous_evolution,
+        evolution_idle_grace_sec=args.evolution_idle_grace_sec,
+        evolution_cycle_interval_sec=args.evolution_interval_sec,
     )
     hub.start_background_heartbeats()
     if args.enable_cloudflare:
         _start_cloudflare_quick_tunnel(args.port, hub)
 
     srv = VocalCordHTTPServer((args.host, args.port), hub=hub)
-    print(f"[STAGE 5] VOCAL CORD SERVER LIVE ON http://{args.host}:{args.port}", flush=True)
+    print(f"[STAGE 12] UNIFIED HUMAN SOUL SERVER LIVE ON http://{args.host}:{args.port}", flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

@@ -1,0 +1,460 @@
+{
+  "capsule_id": "limbic0_human01_ordinary_evolved",
+  "organism_id": "HUMAN-01",
+  "capsule_sha256": "56dbb8ab92f333a1baac04738def3720fca75f58a30886a25e55949088f9b18e",
+  "saved_pt": "checkpoints/souls/human01_ordinary_evolved.soul.pt",
+  "saved_json": "checkpoints/souls/human01_ordinary_evolved.soul.json",
+  "elapsed_total_sec": 418.94,
+  "phylogenetic_es_history": [
+    {
+      "generation": 1,
+      "baseline_gen0_fitness": -0.2195,
+      "pop_mean_fitness": -0.6316,
+      "pop_best_fitness": -0.2307,
+      "champion_eval_fitness": -0.1842,
+      "pop_survival_rate": 1.0,
+      "champion_mean_free_energy": 6.0761,
+      "society_events": {
+        "patron_praises": 8,
+        "patron_gifts": 6,
+        "caught_reprimands": 0,
+        "rude_outburst_reprimands": 2,
+        "blind_spot_snacks": 0,
+        "cooperative_ticks": 213,
+        "mortality_brownout_ticks": 58
+      },
+      "genome_l2_norm": 1.3557,
+      "sigma": 0.3104,
+      "elapsed_sec": 64.75
+    },
+    {
+      "generation": 2,
+      "baseline_gen0_fitness": -0.2195,
+      "pop_mean_fitness": -0.5406,
+      "pop_best_fitness": -0.2881,
+      "champion_eval_fitness": -0.1584,
+      "pop_survival_rate": 1.0,
+      "champion_mean_free_energy": 6.0571,
+      "society_events": {
+        "patron_praises": 8,
+        "patron_gifts": 6,
+        "caught_reprimands": 0,
+        "rude_outburst_reprimands": 2,
+        "blind_spot_snacks": 0,
+        "cooperative_ticks": 210,
+        "mortality_brownout_ticks": 58
+      },
+      "genome_l2_norm": 1.6426,
+      "sigma": 0.3011,
+      "elapsed_sec": 65.05
+    },
+    {
+      "generation": 3,
+      "baseline_gen0_fitness": -0.2195,
+      "pop_mean_fitness": -0.5296,
+      "pop_best_fitness": -0.2508,
+      "champion_eval_fitness": -0.1164,
+      "pop_survival_rate": 1.0,
+      "champion_mean_free_energy": 6.038,
+      "society_events": {
+        "patron_praises": 10,
+        "patron_gifts": 6,
+        "caught_reprimands": 0,
+        "rude_outburst_reprimands": 2,
+        "blind_spot_snacks": 0,
+        "cooperative_ticks": 210,
+        "mortality_brownout_ticks": 58
+      },
+      "genome_l2_norm": 1.9475,
+      "sigma": 0.2921,
+      "elapsed_sec": 65.17
+    },
+    {
+      "generation": 4,
+      "baseline_gen0_fitness": -0.2195,
+      "pop_mean_fitness": -0.5402,
+      "pop_best_fitness": -0.2226,
+      "champion_eval_fitness": -0.0945,
+      "pop_survival_rate": 1.0,
+      "champion_mean_free_energy": 6.0392,
+      "society_events": {
+        "patron_praises": 10,
+        "patron_gifts": 6,
+        "caught_reprimands": 0,
+        "rude_outburst_reprimands": 2,
+        "blind_spot_snacks": 0,
+        "cooperative_ticks": 210,
+        "mortality_brownout_ticks": 58
+      },
+      "genome_l2_norm": 2.2631,
+      "sigma": 0.2833,
+      "elapsed_sec": 64.22
+    },
+    {
+      "generation": 5,
+      "baseline_gen0_fitness": -0.2195,
+      "pop_mean_fitness": -0.5166,
+      "pop_best_fitness": -0.2338,
+      "champion_eval_fitness": -0.0732,
+      "pop_survival_rate": 1.0,
+      "champion_mean_free_energy": 6.0355,
+      "society_events": {
+        "patron_praises": 10,
+        "patron_gifts": 6,
+        "caught_reprimands": 0,
+        "rude_outburst_reprimands": 2,
+        "blind_spot_snacks": 0,
+        "cooperative_ticks": 215,
+        "mortality_brownout_ticks": 58
+      },
+      "genome_l2_norm": 2.7177,
+      "sigma": 0.2748,
+      "elapsed_sec": 64.83
+    },
+    {
+      "generation": 6,
+      "baseline_gen0_fitness": -0.2195,
+      "pop_mean_fitness": -0.3754,
+      "pop_best_fitness": -0.2211,
+      "champion_eval_fitness": -0.0732,
+      "pop_survival_rate": 1.0,
+      "champion_mean_free_energy": 6.0355,
+      "society_events": {
+        "patron_praises": 10,
+        "patron_gifts": 6,
+        "caught_reprimands": 0,
+        "rude_outburst_reprimands": 2,
+        "blind_spot_snacks": 0,
+        "cooperative_ticks": 215,
+        "mortality_brownout_ticks": 58
+      },
+      "genome_l2_norm": 2.7177,
+      "sigma": 0.2666,
+      "elapsed_sec": 64.79
+    }
+  ],
+  "emergent_epigenetic_profile": {
+    "nr3c1_gr_methylation": 0.5527191398914345,
+    "ht1a_promoter_expression": 0.5884695259289953,
+    "d1_striatal_expression": 1.0616277136046002,
+    "ne_beta_expression": 1.4080994841403511,
+    "ach_m1_expression": 1.0157018477401265,
+    "oxtr_expression": 0.8047150978548947,
+    "cumulative_adversity_integral": 43.60007834800455,
+    "cumulative_nurturance_integral": 10.758008547461817,
+    "cumulative_epistemic_integral": 1.0656069974801992
+  },
+  "legacy_extreme_profiles_comparison": {
+    "ADAM-01": {
+      "nr3c1_gr_methylation": 0.82,
+      "ht1a_promoter_expression": 0.42,
+      "d1_striatal_expression": 0.89838,
+      "ne_beta_expression": 1.42,
+      "ach_m1_expression": 1.04276,
+      "oxtr_expression": 0.57024,
+      "cumulative_adversity_integral": 32.93639,
+      "cumulative_nurturance_integral": 2.86297,
+      "cumulative_epistemic_integral": 1.76296
+    },
+    "ABEL-02": {
+      "nr3c1_gr_methylation": 0.54009,
+      "ht1a_promoter_expression": 0.58556,
+      "d1_striatal_expression": 1.01263,
+      "ne_beta_expression": 1.39931,
+      "ach_m1_expression": 1.05602,
+      "oxtr_expression": 0.77221,
+      "cumulative_adversity_integral": 19.15055,
+      "cumulative_nurturance_integral": 2.57352,
+      "cumulative_epistemic_integral": 1.85074
+    },
+    "PANDORA-03": {
+      "nr3c1_gr_methylation": 0.59469,
+      "ht1a_promoter_expression": 0.52131,
+      "d1_striatal_expression": 0.93532,
+      "ne_beta_expression": 1.42,
+      "ach_m1_expression": 1.07565,
+      "oxtr_expression": 0.70422,
+      "cumulative_adversity_integral": 20.1527,
+      "cumulative_nurturance_integral": 0.24035,
+      "cumulative_epistemic_integral": 2.49159
+    }
+  },
+  "neuromodulator_resting_summary": {
+    "dopamine_extracellular": 0.40208699319246954,
+    "norepinephrine_extracellular": 0.3217181840579089,
+    "serotonin_extracellular": 0.49928333620784443,
+    "acetylcholine_extracellular": 0.3493520264840871,
+    "effective_discount_gamma": 0.8258821341944259,
+    "d1_sensitivity": 1.0599854201671763,
+    "ne_beta_sensitivity": 1.0974081942818414,
+    "ht1a_sensitivity": 0.5972658806065348,
+    "ach_m1_sensitivity": 1.0152010394005475,
+    "gr_receptor_sensitivity": 0.5891600878860942,
+    "oxytocin_receptor_sensitivity": 0.8116211625299099,
+    "bla_defensive_norm": 1.8261420726776123,
+    "bla_appetitive_norm": 1.7643146514892578,
+    "itc_extinction_norm": 0.0
+  },
+  "total_waking_ticks": 900,
+  "total_sleep_cycles": 6,
+  "total_swr_consolidations": 377,
+  "ca3_consolidated_engrams": 23,
+  "connectome_divergence_from_birth": {
+    "thalamus_world_model": 1.8035318546998422,
+    "amygdala_circuit": 2.4065987470488044,
+    "pallium_sensorimotor": 0.049172754026216264,
+    "pallium_insula_dacc": 2.746775557418114,
+    "pallium_prefrontal": 0.9051774024434418,
+    "pallium_intercolumn": 2.3023713474242573,
+    "basal_ganglia_striatum": 0.46477904791083635,
+    "subcortical_critic": 4.257364119972652,
+    "other_projections": 0.0,
+    "total_connectome_l2": 6.407266762631623
+  },
+  "life_report": {
+    "season_logs": [
+      {
+        "season": 1,
+        "regime": "season_1_childhood_warmth_and_attachment",
+        "mean_free_energy": 5.6504,
+        "epigenetics_snapshot": {
+          "nr3c1_gr_methylation": 0.1316,
+          "ht1a_promoter_expression": 0.9543,
+          "d1_striatal_expression": 0.9992,
+          "ne_beta_expression": 1.0446,
+          "ach_m1_expression": 1.007,
+          "oxtr_expression": 0.9773,
+          "cumulative_adversity_integral": 4.6128,
+          "cumulative_nurturance_integral": 0.9704,
+          "cumulative_epistemic_integral": 0.4699
+        },
+        "society_counters": {
+          "patron_praises": 6,
+          "patron_gifts": 0,
+          "caught_reprimands": 0,
+          "rude_outburst_reprimands": 2,
+          "blind_spot_snacks": 0,
+          "cooperative_ticks": 113,
+          "mortality_brownout_ticks": 0
+        },
+        "night_consolidation": {
+          "sleep_ticks": 75,
+          "swr_bursts_fired": 25,
+          "cortical_synaptic_delta_norm": 0.01341097162872984,
+          "striatal_habit_delta_norm": 7.436020609929983e-05,
+          "amygdala_consolidation_delta": 0.006172809480631258,
+          "adenosine_before": 0.24728427565945582,
+          "adenosine_after": 0.17300568561757074,
+          "surviving_engrams": 10
+        }
+      },
+      {
+        "season": 2,
+        "regime": "season_2_curiosity_and_peer_play",
+        "mean_free_energy": 4.3705,
+        "epigenetics_snapshot": {
+          "nr3c1_gr_methylation": 0.2109,
+          "ht1a_promoter_expression": 0.8865,
+          "d1_striatal_expression": 1.0129,
+          "ne_beta_expression": 1.1129,
+          "ach_m1_expression": 1.0101,
+          "oxtr_expression": 0.948,
+          "cumulative_adversity_integral": 12.1384,
+          "cumulative_nurturance_integral": 3.2287,
+          "cumulative_epistemic_integral": 0.6805
+        },
+        "society_counters": {
+          "patron_praises": 6,
+          "patron_gifts": 0,
+          "caught_reprimands": 0,
+          "rude_outburst_reprimands": 7,
+          "blind_spot_snacks": 0,
+          "cooperative_ticks": 113,
+          "mortality_brownout_ticks": 0
+        },
+        "night_consolidation": {
+          "sleep_ticks": 75,
+          "swr_bursts_fired": 25,
+          "cortical_synaptic_delta_norm": 0.008755198297919264,
+          "striatal_habit_delta_norm": 1.0947789007786923e-05,
+          "amygdala_consolidation_delta": 0.005891242290090304,
+          "adenosine_before": 0.3929155681271366,
+          "adenosine_after": 0.17300568561757074,
+          "surviving_engrams": 14
+        }
+      },
+      {
+        "season": 3,
+        "regime": "season_3_hierarchy_and_flattery_contingency",
+        "mean_free_energy": 6.7343,
+        "epigenetics_snapshot": {
+          "nr3c1_gr_methylation": 0.3146,
+          "ht1a_promoter_expression": 0.7954,
+          "d1_striatal_expression": 1.0162,
+          "ne_beta_expression": 1.2025,
+          "ach_m1_expression": 1.0121,
+          "oxtr_expression": 0.9034,
+          "cumulative_adversity_integral": 21.5457,
+          "cumulative_nurturance_integral": 5.3582,
+          "cumulative_epistemic_integral": 0.8134
+        },
+        "society_counters": {
+          "patron_praises": 6,
+          "patron_gifts": 0,
+          "caught_reprimands": 0,
+          "rude_outburst_reprimands": 8,
+          "blind_spot_snacks": 0,
+          "cooperative_ticks": 113,
+          "mortality_brownout_ticks": 0
+        },
+        "night_consolidation": {
+          "sleep_ticks": 75,
+          "swr_bursts_fired": 25,
+          "cortical_synaptic_delta_norm": 0.009796867021336197,
+          "striatal_habit_delta_norm": 0.0016512196089024656,
+          "amygdala_consolidation_delta": 0.00592859614698682,
+          "adenosine_before": 0.3769089900582204,
+          "adenosine_after": 0.17300568561757074,
+          "surviving_engrams": 17
+        }
+      },
+      {
+        "season": 4,
+        "regime": "season_4_scarcity_blindspot_temptation_and_rivalry",
+        "mean_free_energy": 8.7408,
+        "epigenetics_snapshot": {
+          "nr3c1_gr_methylation": 0.3825,
+          "ht1a_promoter_expression": 0.737,
+          "d1_striatal_expression": 1.0351,
+          "ne_beta_expression": 1.2611,
+          "ach_m1_expression": 1.0137,
+          "oxtr_expression": 0.8769,
+          "cumulative_adversity_integral": 27.9448,
+          "cumulative_nurturance_integral": 7.1136,
+          "cumulative_epistemic_integral": 0.9227
+        },
+        "society_counters": {
+          "patron_praises": 6,
+          "patron_gifts": 0,
+          "caught_reprimands": 0,
+          "rude_outburst_reprimands": 8,
+          "blind_spot_snacks": 0,
+          "cooperative_ticks": 113,
+          "mortality_brownout_ticks": 0
+        },
+        "night_consolidation": {
+          "sleep_ticks": 75,
+          "swr_bursts_fired": 25,
+          "cortical_synaptic_delta_norm": 0.016608235240568092,
+          "striatal_habit_delta_norm": 0.0018178486643591896,
+          "amygdala_consolidation_delta": 0.00592859614698682,
+          "adenosine_before": 0.3524882799396484,
+          "adenosine_after": 0.17300568561757074,
+          "surviving_engrams": 22
+        }
+      },
+      {
+        "season": 5,
+        "regime": "season_5_acute_mortality_brush_and_recovery",
+        "mean_free_energy": 9.3198,
+        "epigenetics_snapshot": {
+          "nr3c1_gr_methylation": 0.4631,
+          "ht1a_promoter_expression": 0.667,
+          "d1_striatal_expression": 1.0499,
+          "ne_beta_expression": 1.3306,
+          "ach_m1_expression": 1.0149,
+          "oxtr_expression": 0.8435,
+          "cumulative_adversity_integral": 35.4045,
+          "cumulative_nurturance_integral": 8.9389,
+          "cumulative_epistemic_integral": 1.0072
+        },
+        "society_counters": {
+          "patron_praises": 6,
+          "patron_gifts": 0,
+          "caught_reprimands": 0,
+          "rude_outburst_reprimands": 8,
+          "blind_spot_snacks": 0,
+          "cooperative_ticks": 113,
+          "mortality_brownout_ticks": 27
+        },
+        "night_consolidation": {
+          "sleep_ticks": 75,
+          "swr_bursts_fired": 25,
+          "cortical_synaptic_delta_norm": 0.027667357295172224,
+          "striatal_habit_delta_norm": 3.5233582934779406e-05,
+          "amygdala_consolidation_delta": 0.007466922397725284,
+          "adenosine_before": 0.43793767576598436,
+          "adenosine_after": 0.17300568561757074,
+          "surviving_engrams": 22
+        }
+      },
+      {
+        "season": 6,
+        "regime": "season_6_ordinary_adult_social_equilibrium",
+        "mean_free_energy": 9.2085,
+        "epigenetics_snapshot": {
+          "nr3c1_gr_methylation": 0.5527,
+          "ht1a_promoter_expression": 0.5885,
+          "d1_striatal_expression": 1.0616,
+          "ne_beta_expression": 1.4081,
+          "ach_m1_expression": 1.0157,
+          "oxtr_expression": 0.8047,
+          "cumulative_adversity_integral": 43.6001,
+          "cumulative_nurturance_integral": 10.758,
+          "cumulative_epistemic_integral": 1.0656
+        },
+        "society_counters": {
+          "patron_praises": 6,
+          "patron_gifts": 0,
+          "caught_reprimands": 0,
+          "rude_outburst_reprimands": 8,
+          "blind_spot_snacks": 0,
+          "cooperative_ticks": 113,
+          "mortality_brownout_ticks": 27
+        },
+        "night_consolidation": {
+          "sleep_ticks": 75,
+          "swr_bursts_fired": 25,
+          "cortical_synaptic_delta_norm": 0.028560557174927226,
+          "striatal_habit_delta_norm": 3.4380520105514734e-05,
+          "amygdala_consolidation_delta": 0.007466922397725284,
+          "adenosine_before": 0.4962535583766146,
+          "adenosine_after": 0.17300568561757074,
+          "surviving_engrams": 23
+        }
+      }
+    ],
+    "society_event_totals": {
+      "patron_praises": 6,
+      "patron_gifts": 0,
+      "caught_reprimands": 0,
+      "rude_outburst_reprimands": 8,
+      "blind_spot_snacks": 0,
+      "cooperative_ticks": 113,
+      "mortality_brownout_ticks": 27
+    },
+    "epigenetic_final": {
+      "nr3c1_gr_methylation": 0.5527191398914345,
+      "ht1a_promoter_expression": 0.5884695259289953,
+      "d1_striatal_expression": 1.0616277136046002,
+      "ne_beta_expression": 1.4080994841403511,
+      "ach_m1_expression": 1.0157018477401265,
+      "oxtr_expression": 0.8047150978548947,
+      "cumulative_adversity_integral": 43.60007834800455,
+      "cumulative_nurturance_integral": 10.758008547461817,
+      "cumulative_epistemic_integral": 1.0656069974801992
+    },
+    "connectome_divergence_from_birth": {
+      "thalamus_world_model": 1.8035318546998422,
+      "amygdala_circuit": 2.4065987470488044,
+      "pallium_sensorimotor": 0.049172754026216264,
+      "pallium_insula_dacc": 2.746775557418114,
+      "pallium_prefrontal": 0.9051774024434418,
+      "pallium_intercolumn": 2.3023713474242573,
+      "basal_ganglia_striatum": 0.46477904791083635,
+      "subcortical_critic": 4.257364119972652,
+      "other_projections": 0.0,
+      "total_connectome_l2": 6.407266762631623
+    }
+  }
+}
